@@ -369,6 +369,73 @@ alerts/high_value_sales.jsonl
 
 ---
 
+---
+
+## 🎯 Streaming Guarantees
+
+This streaming pipeline implements several reliability guarantees commonly used in real-world event-driven data platforms.
+
+### Delivery Semantics
+
+- At-least-once event delivery
+- Consumers commit offsets **only after successful processing**
+
+This ensures events are never lost even if a consumer crashes.
+
+---
+
+### Idempotent Processing
+
+Duplicate events can occur in Kafka systems due to retries or consumer restarts.
+
+To prevent duplicate processing, this pipeline uses **Redis-based deduplication** with the following key pattern:
+
+```
+processed_order:<order_id>
+```
+
+If an event with the same `order_id` is seen again, it is safely skipped.
+
+---
+
+### Ordering Guarantees
+
+Kafka guarantees **ordering within each partition**.
+
+Events with the same key are routed to the same partition and processed sequentially by the consumer responsible for that partition.
+
+This ensures deterministic event ordering.
+
+---
+
+### Horizontal Scalability
+
+Consumer groups allow parallel processing across multiple partitions.
+
+Example:
+
+```
+3 partitions → up to 3 active consumers
+```
+
+If more consumers are added than partitions:
+
+```
+consumer-1 → partition-0
+consumer-2 → partition-1
+consumer-3 → partition-2
+consumer-4 → idle
+consumer-5 → idle
+```
+
+Additional consumers remain idle until the number of partitions increases.
+
+---
+
+These guarantees make the pipeline **fault-tolerant, scalable, and production-ready** for real-time event processing systems.
+
+---
+
 # 🔮 Future Improvements
 
 - Real-time notification system (Telegram / Slack)
