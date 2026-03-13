@@ -6,7 +6,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 ![Logging](https://img.shields.io/badge/Logs-Structured-green)
 
-Production-style **event streaming pipeline** demonstrating Kafka-based real-time processing with Redis deduplication, aggregation, alert detection, structured logging, and observable metrics.
+A production-style Kafka streaming pipeline that demonstrates event-driven architecture, consumer-group parallel processing, Redis-based deduplication, and real-time alert detection.
 
 ---
 
