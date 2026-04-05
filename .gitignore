@@ -5,7 +5,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.log
+
+# ==================================
+# Databases
+# ==================================
 *.sqlite
 *.db
 
@@ -13,7 +16,14 @@ __pycache__/
 # Virtual environments
 # ==================================
 venv/
-.env/
+env/
+.venv/
+
+# ==================================
+# Environment files
+# ==================================
+.env
+.env.*
 
 # ==================================
 # IDE / Editor files
@@ -28,18 +38,14 @@ venv/
 Thumbs.db
 
 # ==================================
-# Runtime output (Streaming sinks)ฏ
+# Runtime output (Streaming sinks)
 # ==================================
 output/
 alerts/
 *.jsonl
 *.json
-
-# ==================================
-# Logs
-# ==================================
-*.log
 *.tmp
+*.log
 
 # ==================================
 # Kafka / Redis local state (optional)
