@@ -28,7 +28,7 @@ venv/
 Thumbs.db
 
 # ==================================
-# Runtime output (Streaming sinks)
+# Runtime output (Streaming sinks)ฏ
 # ==================================
 output/
 alerts/
