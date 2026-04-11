@@ -4,17 +4,20 @@ from pathlib import Path
 from datetime import datetime, UTC
 
 import redis
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 
 from common.config import (
     KAFKA_BROKER,
     TOPIC_SALES,
+    TOPIC_ALERTS,
+    TOPIC_DUPLICATES,
     HIGH_VALUE_THRESHOLD,
+    HIGH_DISCOUNT_THRESHOLD,
+    LOW_PROFIT_THRESHOLD,
     DEDUP_TTL_SECONDS,
     REDIS_HOST,
     REDIS_PORT,
 )
-
 
 # ==================================
 # Logging Setup
@@ -69,6 +72,15 @@ def main(consumer_name: str) -> None:
     )
 
     # ==================================
+    # Kafka Producer Setup (Derived Events)
+    # ==================================
+    # Publish alert and duplicate events to downstream Kafka topics.
+    alert_producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BROKER,
+        value_serializer=lambda v: json.dumps(v).encode("utf-8")
+    )
+
+    # ==================================
     # Redis Client (Deduplication + Global Metrics)
     # ==================================
     # Redis is used for two purposes:
@@ -120,6 +132,7 @@ def main(consumer_name: str) -> None:
 
     # Alert sinks
     alert_file = alerts_dir / "high_value_sales.jsonl"
+    risky_alert_file = alerts_dir / "risky_discount_profit.jsonl"
     duplicate_file = alerts_dir / "duplicate_events.jsonl"
     failed_file = alerts_dir / "failed_events.jsonl"
 
@@ -188,6 +201,9 @@ def main(consumer_name: str) -> None:
     logger.info("%s writing alerts to %s", consumer_name, alert_file)
     logger.info("%s writing duplicate skips to %s", consumer_name, duplicate_file)
     logger.info("%s writing failed events to %s", consumer_name, failed_file)
+    logger.info("%s writing risky discount-profit alerts to %s", consumer_name, risky_alert_file)
+    logger.info("%s publishing alerts to Kafka topic %s", consumer_name, TOPIC_ALERTS)
+    logger.info("%s publishing duplicates to Kafka topic %s", consumer_name, TOPIC_DUPLICATES)
 
     # ==================================
     # Main Consumer Loop
@@ -199,9 +215,15 @@ def main(consumer_name: str) -> None:
             partition = message.partition
             offset = message.offset
             topic = message.topic
+
             order_id = str(event["order_id"])
             region = event["region"]
-            sales = event["sales"]
+            category = event.get("category")
+            sub_category = event.get("sub_category")
+            sales = float(event["sales"])
+            profit = float(event.get("profit", 0.0))
+            discount = float(event.get("discount", 0.0))
+            event_time = event.get("event_time")
 
             # ==================================
             # Event Processing
@@ -216,16 +238,21 @@ def main(consumer_name: str) -> None:
                 "topic": topic,
                 "partition": partition,
                 "offset": offset,
-                "order_id": event["order_id"],
+                "order_id": order_id,
                 "region": region,
+                "category": category,
+                "sub_category": sub_category,
                 "sales": sales,
+                "profit": profit,
+                "discount": discount,
+                "event_time": event_time,
             }
 
             # Structured processed-event log
             # Log important routing and business fields in a stable format.
             logger.info(
-                "event received | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%s",
-                consumer_name, topic, partition, offset, order_id, region, sales
+                "event received | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%.2f profit=%.2f discount=%.2f",
+                consumer_name, topic, partition, offset, order_id, region, sales, profit, discount
             )
 
             with raw_event_file.open("a", encoding="utf-8") as f:
@@ -276,6 +303,13 @@ def main(consumer_name: str) -> None:
                     consumer_name, topic, partition, offset, order_id, region, sales
                 )
 
+                alert_producer.send(
+                    topic=TOPIC_DUPLICATES,
+                    key=order_id.encode(),
+                    value=duplicate_event
+                )
+                alert_producer.flush()
+
                 with duplicate_file.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(duplicate_event, ensure_ascii=False) + "\n")
 
@@ -309,6 +343,57 @@ def main(consumer_name: str) -> None:
                 f.write(json.dumps(aggregate_snapshot, ensure_ascii=False) + "\n")
 
             # ==================================
+            # Alert Detection (Risky Discount-Profit)
+            # ==================================
+            # Trigger an alert when discount is high
+            # but profit is low or negative.
+            if discount >= HIGH_DISCOUNT_THRESHOLD and profit <= LOW_PROFIT_THRESHOLD:
+                metrics["alerts_triggered"] += 1
+                redis_client.incr("metrics:alerts_triggered_total")
+
+                risky_alert_event = {
+                    "alert_type": "risky_discount_profit",
+                    "detected_at": datetime.now(UTC).isoformat(),
+                    "consumer": consumer_name,
+                    "topic": topic,
+                    "partition": partition,
+                    "offset": offset,
+                    "order_id": order_id,
+                    "region": region,
+                    "category": category,
+                    "sub_category": sub_category,
+                    "sales": sales,
+                    "profit": profit,
+                    "discount": discount,
+                    "event_time": event_time,
+                }
+
+                logger.warning(
+                    "risky discount-profit detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s category=%s sub_category=%s sales=%.2f profit=%.2f discount=%.2f",
+                    consumer_name,
+                    topic,
+                    partition,
+                    offset,
+                    order_id,
+                    region,
+                    category,
+                    sub_category,
+                    sales,
+                    profit,
+                    discount,
+                )
+
+                with risky_alert_file.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(risky_alert_event, ensure_ascii=False) + "\n")
+
+                alert_producer.send(
+                    topic=TOPIC_ALERTS,
+                    key=region.encode(),
+                    value=risky_alert_event
+                )
+                alert_producer.flush()
+
+            # ==================================
             # Alert Detection (High Value Sales)
             # ==================================
             # Trigger an alert when sales exceed the configured threshold.
@@ -337,6 +422,13 @@ def main(consumer_name: str) -> None:
 
                 with alert_file.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(alert_event, ensure_ascii=False) + "\n")
+
+                alert_producer.send(
+                    topic=TOPIC_ALERTS,
+                    key=region.encode(),
+                    value=alert_event
+                )
+                alert_producer.flush()
 
             # ==================================
             # Persist Metrics
