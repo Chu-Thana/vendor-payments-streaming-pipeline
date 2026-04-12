@@ -1,5 +1,10 @@
 # Shared configuration for the local Kafka streaming project.
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ==================================
 # Kafka
 # ==================================
@@ -38,3 +43,12 @@ DEDUP_TTL_SECONDS = 3600
 LOG_LEVEL = "INFO"
 KAFKA_LOG_LEVEL = "WARNING"
 REDIS_LOG_LEVEL = "WARNING"
+
+# ==================================
+# Telegram
+# ==================================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+ENABLE_TELEGRAM_ALERTS = os.getenv("ENABLE_TELEGRAM_ALERTS", "false").lower() == "true"
+
+print(TELEGRAM_CHAT_ID)

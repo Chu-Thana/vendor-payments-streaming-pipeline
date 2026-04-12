@@ -3,3 +3,7 @@ kafka-python>=2.0.2
 
 # Redis client for deduplication and global metrics
 redis>=5.0.0
+
+kafka-python
+requests
+python-dotenv

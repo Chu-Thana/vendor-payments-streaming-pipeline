@@ -19,6 +19,8 @@ from common.config import (
     REDIS_PORT,
 )
 
+from common.alert_notifier import send_telegram_alert
+
 # ==================================
 # Logging Setup
 # ==================================
@@ -393,6 +395,21 @@ def main(consumer_name: str) -> None:
                 )
                 alert_producer.flush()
 
+                # Telegram alert
+                message = (
+                    "⚠️ Risky discount-profit event\n"
+                    f"consumer: {consumer_name}\n"
+                    f"order_id: {event['order_id']}\n"
+                    f"region: {event['region']}\n"
+                    f"category: {event['category']}\n"
+                    f"sub_category: {event['sub_category']}\n"
+                    f"sales: {event['sales']}\n"
+                    f"profit: {event['profit']}\n"
+                    f"discount: {event['discount']}\n"
+                    f"time: {event['event_time']}"
+                )
+                send_telegram_alert(message)
+
             # ==================================
             # Alert Detection (High Value Sales)
             # ==================================
@@ -429,6 +446,21 @@ def main(consumer_name: str) -> None:
                     value=alert_event
                 )
                 alert_producer.flush()
+
+                # Telegram alert
+                message = (
+                    "🚨 High-value sale detected\n"
+                    f"consumer: {consumer_name}\n"
+                    f"order_id: {event['order_id']}\n"
+                    f"region: {event['region']}\n"
+                    f"category: {event['category']}\n"
+                    f"sub_category: {event['sub_category']}\n"
+                    f"sales: {event['sales']}\n"
+                    f"profit: {event['profit']}\n"
+                    f"discount: {event['discount']}\n"
+                    f"time: {event['event_time']}"
+                )
+                send_telegram_alert(message)
 
             # ==================================
             # Persist Metrics
