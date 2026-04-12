@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timezone
 
 import redis
 from kafka import KafkaConsumer, KafkaProducer
@@ -20,6 +20,40 @@ from common.config import (
 )
 
 from common.alert_notifier import send_telegram_alert
+
+# ==================================
+# Helper function
+# ==================================
+STAGING_FILE = Path("output/staging/staging_sales_events.jsonl")
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+def append_jsonl(path: Path, record: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+def build_staging_record(event, is_duplicate, is_high_value, consumer_name):
+    return {
+        "event_id": event.get("event_id"),
+        "order_id": event.get("order_id"),
+        "region": event.get("region"),
+        "category": event.get("category"),
+        "sub_category": event.get("sub_category"),
+        "sales": event.get("sales"),
+        "profit": event.get("profit"),
+        "discount": event.get("discount"),
+        "event_time": event.get("event_time"),
+
+        "ingested_at": utc_now(),
+
+        "is_duplicate": is_duplicate,
+        "is_high_value": is_high_value,
+
+        "consumer": consumer_name,
+        "pipeline_stage": "staged"
+    }
 
 # ==================================
 # Logging Setup
@@ -218,6 +252,7 @@ def main(consumer_name: str) -> None:
             offset = message.offset
             topic = message.topic
 
+            event_id = event.get("event_id")
             order_id = str(event["order_id"])
             region = event["region"]
             category = event.get("category")
@@ -226,6 +261,18 @@ def main(consumer_name: str) -> None:
             profit = float(event.get("profit", 0.0))
             discount = float(event.get("discount", 0.0))
             event_time = event.get("event_time")
+
+            if not event_id or str(event_id).strip() == "":
+                logger.error("Missing event_id")
+                append_jsonl(path="alerts/failed_events.jsonl", record=event)
+                continue
+
+            dedup_key = f"event:{event_id}"
+            is_duplicate = bool(redis_client.exists(dedup_key))
+
+            if is_duplicate:
+                logger.warning(f"Duplicate event skipped: {event_id}")
+                continue
 
             # ==================================
             # Event Processing
@@ -236,6 +283,7 @@ def main(consumer_name: str) -> None:
             redis_client.incr("metrics:events_received_total")
 
             enriched_event = {
+                "event_id": event_id,
                 "consumer": consumer_name,
                 "topic": topic,
                 "partition": partition,
@@ -461,6 +509,21 @@ def main(consumer_name: str) -> None:
                     f"time: {event['event_time']}"
                 )
                 send_telegram_alert(message)
+
+            # ==================================
+            # Build + Write Staging (NEW)
+            # ==================================
+            is_high_value = sales > HIGH_VALUE_THRESHOLD
+
+            staging_record = build_staging_record(
+                event=enriched_event,
+                is_duplicate=is_duplicate,
+                is_high_value=is_high_value,
+                consumer_name=consumer_name
+            )
+
+            append_jsonl(STAGING_FILE, staging_record)
+            redis_client.setex(dedup_key, DEDUP_TTL_SECONDS, "1")
 
             # ==================================
             # Persist Metrics

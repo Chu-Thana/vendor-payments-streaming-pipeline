@@ -23,7 +23,7 @@ TOPIC_RISKY_DISCOUNT_ALERTS = "risky_discount_profit_alerts"
 # ==================================
 # Business rule thresholds
 # ==================================
-HIGH_VALUE_THRESHOLD = 400
+HIGH_VALUE_THRESHOLD = 15000
 
 HIGH_DISCOUNT_THRESHOLD = 0.30
 LOW_PROFIT_THRESHOLD = 0.0

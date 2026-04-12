@@ -2,6 +2,7 @@ import json
 import time
 import random
 import logging
+import uuid
 from datetime import datetime
 
 from kafka import KafkaProducer
@@ -58,6 +59,7 @@ def main() -> None:
         # ==================================
         if random.random() < 0.2:
             event = {
+                "event_id": f"EV-{int(time.time() * 1000)}-{random.randint(1000, 9999)}",
                 "order_id": f"CA-ALERT-{random.randint(1000, 9999)}",
                 "region": random.choice(["East", "West", "Central", "South"]),
                 "category": "Technology",
@@ -69,6 +71,7 @@ def main() -> None:
             }
         else:
             event = {
+                "event_id": f"EV-{int(time.time() * 1000)}-{random.randint(1000, 9999)}",
                 "order_id": f"CA-2011-{random.randint(1000, 9999)}",
                 "region": random.choice(["East", "West", "Central", "South"]),
                 "category": random.choice(["Technology", "Furniture", "Office Supplies"]),
@@ -89,7 +92,7 @@ def main() -> None:
         # within that key group.
         producer.send(
             topic=TOPIC_SALES,
-            key=event["region"].encode(),
+            key = (event.get("region") or "unknown").encode(),
             value=event
         )
 
