@@ -3,9 +3,12 @@ import logging
 from pathlib import Path
 from datetime import datetime, UTC, timezone
 
+import time
+from kafka.errors import NoBrokersAvailable
+
 import redis
 from kafka import KafkaConsumer, KafkaProducer
-
+from common.alert_notifier import send_telegram_alert
 from common.config import (
     KAFKA_BROKER,
     TOPIC_SALES,
@@ -17,22 +20,20 @@ from common.config import (
     DEDUP_TTL_SECONDS,
     REDIS_HOST,
     REDIS_PORT,
+    STAGING_FILE
 )
-
-from common.alert_notifier import send_telegram_alert
 
 # ==================================
 # Helper function
 # ==================================
-STAGING_FILE = Path("output/staging/staging_sales_events.jsonl")
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
-def append_jsonl(path: Path, record: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+def append_jsonl(file_path: Path, record: dict) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 def build_staging_record(event, is_duplicate, is_high_value, consumer_name):
     return {
@@ -51,7 +52,7 @@ def build_staging_record(event, is_duplicate, is_high_value, consumer_name):
         "is_duplicate": is_duplicate,
         "is_high_value": is_high_value,
 
-        "consumer": consumer_name,
+        "consumer_name": f"consumer-{consumer_name}",
         "pipeline_stage": "staged"
     }
 
@@ -98,14 +99,26 @@ def main(consumer_name: str) -> None:
     #
     # - group_id="sales-consumer-group"
     #   Multiple consumers in the same group share partitions.
-    consumer = KafkaConsumer(
-        TOPIC_SALES,
-        bootstrap_servers=KAFKA_BROKER,
-        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-        auto_offset_reset="earliest",
-        enable_auto_commit=True,
-        group_id="sales-consumer-group"
-    )
+    consumer = None
+
+    for attempt in range(5):
+        try:
+            consumer = KafkaConsumer(
+                TOPIC_SALES,
+                bootstrap_servers=KAFKA_BROKER,
+                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+                auto_offset_reset="earliest",
+                enable_auto_commit=True,
+                group_id="sales-consumer-group"
+            )
+            logger.info("Connected to Kafka on attempt %s", attempt + 1)
+            break
+        except NoBrokersAvailable:
+            logger.warning("Kafka not ready, retrying... attempt=%s/5", attempt + 1)
+            time.sleep(3)
+
+    if consumer is None:
+        raise RuntimeError("Kafka broker is still not available after retries")
 
     # ==================================
     # Kafka Producer Setup (Derived Events)
@@ -240,6 +253,7 @@ def main(consumer_name: str) -> None:
     logger.info("%s writing risky discount-profit alerts to %s", consumer_name, risky_alert_file)
     logger.info("%s publishing alerts to Kafka topic %s", consumer_name, TOPIC_ALERTS)
     logger.info("%s publishing duplicates to Kafka topic %s", consumer_name, TOPIC_DUPLICATES)
+    logger.info("%s writing staging events to %s", consumer_name, STAGING_FILE)
 
     # ==================================
     # Main Consumer Loop
@@ -284,7 +298,7 @@ def main(consumer_name: str) -> None:
 
             enriched_event = {
                 "event_id": event_id,
-                "consumer": consumer_name,
+                "consumer_name": f"consumer-{consumer_name}",
                 "topic": topic,
                 "partition": partition,
                 "offset": offset,
@@ -523,6 +537,14 @@ def main(consumer_name: str) -> None:
             )
 
             append_jsonl(STAGING_FILE, staging_record)
+
+            logger.info(
+                "staged event | consumer=%s event_id=%s staging_file=%s",
+                consumer_name,
+                staging_record.get("event_id"),
+                STAGING_FILE
+            )
+
             redis_client.setex(dedup_key, DEDUP_TTL_SECONDS, "1")
 
             # ==================================

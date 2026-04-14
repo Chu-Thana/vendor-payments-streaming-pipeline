@@ -1,10 +1,30 @@
 # Shared configuration for the local Kafka streaming project.
 
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ==================================
+# Staging file
+# ==================================
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+OUTPUT_DIR = BASE_DIR / "output"
+EVENT_DIR = OUTPUT_DIR / "event"
+AGGREGATE_DIR = OUTPUT_DIR / "aggregates"
+METRIC_DIR = OUTPUT_DIR / "metric"
+ALERT_DIR = BASE_DIR / "alerts"
+
+STAGING_DIR = OUTPUT_DIR / "staging"
+STAGING_FILE = Path(
+    os.getenv(
+        "STAGING_FILE",
+        str(STAGING_DIR / "staging_sales_events.jsonl")
+    )
+)
 # ==================================
 # Kafka
 # ==================================
@@ -50,5 +70,3 @@ REDIS_LOG_LEVEL = "WARNING"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 ENABLE_TELEGRAM_ALERTS = os.getenv("ENABLE_TELEGRAM_ALERTS", "false").lower() == "true"
-
-print(TELEGRAM_CHAT_ID)
