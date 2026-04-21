@@ -1,13 +1,13 @@
 import json
 import logging
+import time
 from pathlib import Path
 from datetime import datetime, UTC, timezone
 
-import time
-from kafka.errors import NoBrokersAvailable
-
 import redis
 from kafka import KafkaConsumer, KafkaProducer
+from kafka.errors import NoBrokersAvailable
+
 from common.alert_notifier import send_telegram_alert
 from common.config import (
     KAFKA_BROKER,
@@ -20,22 +20,28 @@ from common.config import (
     DEDUP_TTL_SECONDS,
     REDIS_HOST,
     REDIS_PORT,
-    STAGING_FILE
+    STAGING_FILE,
+    KAFKA_SECURITY_PROTOCOL,
+    KAFKA_SASL_MECHANISM,
+    KAFKA_USERNAME,
+    KAFKA_PASSWORD,
+    LOG_LEVEL,
 )
 
 # ==================================
-# Helper function
+# Helper functions
 # ==================================
-
-def utc_now():
+def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 def append_jsonl(file_path: Path, record: dict) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-def build_staging_record(event, is_duplicate, is_high_value, consumer_name):
+
+def build_staging_record(event: dict, is_duplicate: bool, is_high_value: bool, consumer_name: str) -> dict:
     return {
         "event_id": event.get("event_id"),
         "order_id": event.get("order_id"),
@@ -46,72 +52,78 @@ def build_staging_record(event, is_duplicate, is_high_value, consumer_name):
         "profit": event.get("profit"),
         "discount": event.get("discount"),
         "event_time": event.get("event_time"),
-
         "ingested_at": utc_now(),
-
-        "is_duplicate": is_duplicate,
-        "is_high_value": is_high_value,
-
+        "is_duplicate": int(is_duplicate),
+        "is_high_value": int(is_high_value),
         "consumer_name": f"consumer-{consumer_name}",
-        "pipeline_stage": "staged"
+        "pipeline_stage": "staged",
     }
+
+
+def build_kafka_consumer() -> KafkaConsumer:
+    config = {
+        "bootstrap_servers": KAFKA_BROKER,
+        "value_deserializer": lambda m: json.loads(m.decode("utf-8")),
+        "auto_offset_reset": "earliest",
+        "enable_auto_commit": True,
+        "group_id": "sales-consumer-group",
+    }
+
+    if KAFKA_SECURITY_PROTOCOL != "PLAINTEXT":
+        config.update({
+            "security_protocol": KAFKA_SECURITY_PROTOCOL,
+            "sasl_mechanism": KAFKA_SASL_MECHANISM,
+            "sasl_plain_username": KAFKA_USERNAME,
+            "sasl_plain_password": KAFKA_PASSWORD,
+        })
+
+    return KafkaConsumer(TOPIC_SALES, **config)
+
+
+def build_kafka_producer() -> KafkaProducer:
+    config = {
+        "bootstrap_servers": KAFKA_BROKER,
+        "value_serializer": lambda v: json.dumps(v).encode("utf-8"),
+    }
+
+    if KAFKA_SECURITY_PROTOCOL != "PLAINTEXT":
+        config.update({
+            "security_protocol": KAFKA_SECURITY_PROTOCOL,
+            "sasl_mechanism": KAFKA_SASL_MECHANISM,
+            "sasl_plain_username": KAFKA_USERNAME,
+            "sasl_plain_password": KAFKA_PASSWORD,
+        })
+
+    return KafkaProducer(**config)
+
 
 # ==================================
 # Logging Setup
 # ==================================
-# Use simple key=value log format for readability and debugging.
-# Designed for local development; can be extended to structured logging (JSON) in production.
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ==================================
-# Consumer Main Function
-# ==================================
 def main(consumer_name: str) -> None:
     """
     Start a Kafka consumer instance for processing sales events.
-
-    Responsibilities:
-    - consume events from Kafka
-    - persist raw events to local sinks
-    - deduplicate events using Redis
-    - maintain simple aggregations
-    - detect high-value sales alerts
-    - persist local and global metrics
     """
 
-    # ==================================
-    # Kafka Consumer Setup
-    # ==================================
-    # Connect to the Kafka broker and subscribe to the sales topic.
-    #
-    # Configuration notes:
-    # - auto_offset_reset="earliest"
-    #   Start from the earliest offset if no committed offset exists.
-    #
-    # - enable_auto_commit=True
-    #   Consumer commits offsets automatically.
-    #
-    # - group_id="sales-consumer-group"
-    #   Multiple consumers in the same group share partitions.
     consumer = None
 
     for attempt in range(5):
         try:
-            consumer = KafkaConsumer(
-                TOPIC_SALES,
-                bootstrap_servers=KAFKA_BROKER,
-                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-                auto_offset_reset="earliest",
-                enable_auto_commit=True,
-                group_id="sales-consumer-group"
+            consumer = build_kafka_consumer()
+            logger.info(
+                "Connected to Kafka | broker=%s | security_protocol=%s | attempt=%s",
+                KAFKA_BROKER,
+                KAFKA_SECURITY_PROTOCOL,
+                attempt + 1,
             )
-            logger.info("Connected to Kafka on attempt %s", attempt + 1)
             break
         except NoBrokersAvailable:
             logger.warning("Kafka not ready, retrying... attempt=%s/5", attempt + 1)
@@ -120,36 +132,14 @@ def main(consumer_name: str) -> None:
     if consumer is None:
         raise RuntimeError("Kafka broker is still not available after retries")
 
-    # ==================================
-    # Kafka Producer Setup (Derived Events)
-    # ==================================
-    # Publish alert and duplicate events to downstream Kafka topics.
-    alert_producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BROKER,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8")
-    )
+    alert_producer = build_kafka_producer()
 
-    # ==================================
-    # Redis Client (Deduplication + Global Metrics)
-    # ==================================
-    # Redis is used for two purposes:
-    #
-    # 1. Deduplication
-    #    Track processed order_id values to prevent duplicate processing.
-    #
-    # 2. Global metrics
-    #    Maintain counters shared across all consumer instances.
     redis_client = redis.Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
         decode_responses=True
     )
 
-    # ==================================
-    # Output Directories
-    # ==================================
-    # Ensure runtime directories exist.
-    # These folders act as local sinks and are ignored by git.
     event_dir = Path("output/event")
     event_dir.mkdir(parents=True, exist_ok=True)
 
@@ -162,39 +152,17 @@ def main(consumer_name: str) -> None:
     alerts_dir = Path("alerts")
     alerts_dir.mkdir(parents=True, exist_ok=True)
 
-    # ==================================
-    # Output Files
-    # ==================================
-    # Raw event sink
-    # This file stores all received events before deduplication.
-    # It may contain duplicate events by design.
     raw_event_file = event_dir / "raw_sales_events.jsonl"
-
-    # Aggregation output
     aggregate_file = aggregates_dir / "sales_by_region.jsonl"
-
-    # Consumer-level metrics
     metrics_file = metric_dir / "metrics.json"
-
-    # Global metrics across all consumers
     global_metrics_file = metric_dir / "global_metrics.json"
-
-    # Alert sinks
     alert_file = alerts_dir / "high_value_sales.jsonl"
     risky_alert_file = alerts_dir / "risky_discount_profit.jsonl"
     duplicate_file = alerts_dir / "duplicate_events.jsonl"
     failed_file = alerts_dir / "failed_events.jsonl"
 
-    # ==================================
-    # In-Memory Aggregation State
-    # ==================================
-    # Maintain a running total of sales by region.
-    # This state lives in memory for the lifetime of the consumer process.
     sales_by_region = {}
 
-    # ==================================
-    # Local Consumer Metrics
-    # ==================================
     metrics = {
         "consumer": consumer_name,
         "events_received": 0,
@@ -205,26 +173,12 @@ def main(consumer_name: str) -> None:
         "last_updated": None
     }
 
-    # ==================================
-    # Metrics Utilities
-    # ==================================
     def write_metrics() -> None:
-        """
-        Persist consumer-local metrics to disk.
-
-        This provides a quick view of the current consumer's progress.
-        """
         metrics["last_updated"] = datetime.now(UTC).isoformat()
-
         with metrics_file.open("w", encoding="utf-8") as fo:
             json.dump(metrics, fo, ensure_ascii=False, indent=2)
 
     def write_global_metrics() -> None:
-        """
-        Persist aggregated metrics across all consumers.
-
-        Values are retrieved from Redis counters shared by the consumer group.
-        """
         global_metrics = {
             "events_received_total": int(redis_client.get("metrics:events_received_total") or 0),
             "events_aggregated_total": int(redis_client.get("metrics:events_aggregated_total") or 0),
@@ -237,11 +191,6 @@ def main(consumer_name: str) -> None:
         with global_metrics_file.open("w", encoding="utf-8") as fx:
             json.dump(global_metrics, fx, ensure_ascii=False, indent=2)
 
-    # ==================================
-    # Startup Logging
-    # ==================================
-    # Log startup details so it is easy to verify which consumer is running
-    # and where each sink file is being written.
     logger.info("%s started and waiting for messages...", consumer_name)
     logger.info("%s writing raw events to %s", consumer_name, raw_event_file)
     logger.info("%s writing aggregates to %s", consumer_name, aggregate_file)
@@ -255,10 +204,6 @@ def main(consumer_name: str) -> None:
     logger.info("%s publishing duplicates to Kafka topic %s", consumer_name, TOPIC_DUPLICATES)
     logger.info("%s writing staging events to %s", consumer_name, STAGING_FILE)
 
-    # ==================================
-    # Main Consumer Loop
-    # ==================================
-    # Continuously process events from Kafka.
     for message in consumer:
         try:
             event = message.value
@@ -278,21 +223,16 @@ def main(consumer_name: str) -> None:
 
             if not event_id or str(event_id).strip() == "":
                 logger.error("Missing event_id")
-                append_jsonl(path="alerts/failed_events.jsonl", record=event)
+                append_jsonl(failed_file, event)
                 continue
 
             dedup_key = f"event:{event_id}"
             is_duplicate = bool(redis_client.exists(dedup_key))
 
             if is_duplicate:
-                logger.warning(f"Duplicate event skipped: {event_id}")
+                logger.warning("Duplicate event skipped: %s", event_id)
                 continue
 
-            # ==================================
-            # Event Processing
-            # ==================================
-            # Record all received events first (raw layer)
-            # Deduplication is applied after raw persistence
             metrics["events_received"] += 1
             redis_client.incr("metrics:events_received_total")
 
@@ -312,27 +252,13 @@ def main(consumer_name: str) -> None:
                 "event_time": event_time,
             }
 
-            # Structured processed-event log
-            # Log important routing and business fields in a stable format.
             logger.info(
                 "event received | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%.2f profit=%.2f discount=%.2f",
                 consumer_name, topic, partition, offset, order_id, region, sales, profit, discount
             )
 
-            with raw_event_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(enriched_event, ensure_ascii=False) + "\n")
+            append_jsonl(raw_event_file, enriched_event)
 
-            # ==================================
-            # Deduplication (Redis SETNX pattern)
-            # ==================================
-            # Redis key format:
-            #   processed_order:<order_id>
-            #
-            # SETNX behavior through set(..., nx=True):
-            #   - If key does NOT exist -> insert and return True
-            #   - If key exists -> return None / False-like value
-            #
-            # TTL is applied to prevent unbounded Redis key growth.
             redis_key = f"processed_order:{order_id}"
             was_set = redis_client.set(
                 redis_key,
@@ -360,8 +286,6 @@ def main(consumer_name: str) -> None:
                     "reason": "duplicate_order_id_skipped_redis"
                 }
 
-                # Structured duplicate log
-                # Keep the message short, and put important fields into extra.
                 logger.warning(
                     "duplicate skipped | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%s store=redis",
                     consumer_name, topic, partition, offset, order_id, region, sales
@@ -374,15 +298,9 @@ def main(consumer_name: str) -> None:
                 )
                 alert_producer.flush()
 
-                with duplicate_file.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(duplicate_event, ensure_ascii=False) + "\n")
-
+                append_jsonl(duplicate_file, duplicate_event)
                 continue
 
-            # ==================================
-            # Aggregation (Sales by Region)
-            # ==================================
-            # Maintain an in-memory running total by region.
             if region not in sales_by_region:
                 sales_by_region[region] = {
                     "total_sales": 0.0,
@@ -403,14 +321,8 @@ def main(consumer_name: str) -> None:
                 "events_aggregated": sales_by_region[region]["events_aggregated"],
             }
 
-            with aggregate_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(aggregate_snapshot, ensure_ascii=False) + "\n")
+            append_jsonl(aggregate_file, aggregate_snapshot)
 
-            # ==================================
-            # Alert Detection (Risky Discount-Profit)
-            # ==================================
-            # Trigger an alert when discount is high
-            # but profit is low or negative.
             if discount >= HIGH_DISCOUNT_THRESHOLD and profit <= LOW_PROFIT_THRESHOLD:
                 metrics["alerts_triggered"] += 1
                 redis_client.incr("metrics:alerts_triggered_total")
@@ -447,8 +359,7 @@ def main(consumer_name: str) -> None:
                     discount,
                 )
 
-                with risky_alert_file.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(risky_alert_event, ensure_ascii=False) + "\n")
+                append_jsonl(risky_alert_file, risky_alert_event)
 
                 alert_producer.send(
                     topic=TOPIC_ALERTS,
@@ -457,8 +368,7 @@ def main(consumer_name: str) -> None:
                 )
                 alert_producer.flush()
 
-                # Telegram alert
-                message = (
+                message_text = (
                     "⚠️ Risky discount-profit event\n"
                     f"consumer: {consumer_name}\n"
                     f"order_id: {event['order_id']}\n"
@@ -470,12 +380,8 @@ def main(consumer_name: str) -> None:
                     f"discount: {event['discount']}\n"
                     f"time: {event['event_time']}"
                 )
-                send_telegram_alert(message)
+                send_telegram_alert(message_text)
 
-            # ==================================
-            # Alert Detection (High Value Sales)
-            # ==================================
-            # Trigger an alert when sales exceed the configured threshold.
             if sales > HIGH_VALUE_THRESHOLD:
                 metrics["alerts_triggered"] += 1
                 redis_client.incr("metrics:alerts_triggered_total")
@@ -492,15 +398,12 @@ def main(consumer_name: str) -> None:
                     "sales": sales,
                 }
 
-                # Structured alert log
-                # This keeps the alert line compact and easy to scan.
                 logger.warning(
                     "high value sale detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%s",
                     consumer_name, topic, partition, offset, order_id, region, sales
                 )
 
-                with alert_file.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(alert_event, ensure_ascii=False) + "\n")
+                append_jsonl(alert_file, alert_event)
 
                 alert_producer.send(
                     topic=TOPIC_ALERTS,
@@ -509,8 +412,7 @@ def main(consumer_name: str) -> None:
                 )
                 alert_producer.flush()
 
-                # Telegram alert
-                message = (
+                message_text = (
                     "🚨 High-value sale detected\n"
                     f"consumer: {consumer_name}\n"
                     f"order_id: {event['order_id']}\n"
@@ -522,11 +424,8 @@ def main(consumer_name: str) -> None:
                     f"discount: {event['discount']}\n"
                     f"time: {event['event_time']}"
                 )
-                send_telegram_alert(message)
+                send_telegram_alert(message_text)
 
-            # ==================================
-            # Build + Write Staging (NEW)
-            # ==================================
             is_high_value = sales > HIGH_VALUE_THRESHOLD
 
             staging_record = build_staging_record(
@@ -547,10 +446,6 @@ def main(consumer_name: str) -> None:
 
             redis_client.setex(dedup_key, DEDUP_TTL_SECONDS, "1")
 
-            # ==================================
-            # Persist Metrics
-            # ==================================
-            # Persist local and global metric snapshots after each processed event.
             write_metrics()
             write_global_metrics()
 
@@ -576,17 +471,13 @@ def main(consumer_name: str) -> None:
                 getattr(message, "offset", None),
             )
 
-            with failed_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(failed_event, ensure_ascii=False) + "\n")
+            append_jsonl(failed_file, failed_event)
 
             write_metrics()
             write_global_metrics()
-
             continue
 
-# ==================================
-# Script Entry Point
-# ==================================
+
 if __name__ == "__main__":
     import sys
 
