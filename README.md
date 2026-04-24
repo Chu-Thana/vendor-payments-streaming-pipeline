@@ -73,11 +73,13 @@ Trade-off:
 
 ## 2️⃣ Event Flow (Producer → Kafka → Consumer)
 
-![Kafka Event Flow](assets/02_kafka_event_flow.png)
+Real-time streaming pipeline:
 
-- Producer sends events
-- Kafka distributes via partitions
-- Consumer processes in parallel
+- Producer sends events to Kafka
+- Kafka distributes events across partitions
+- Consumer processes events in parallel
+
+> Kafka enables scalable, distributed event processing using partition-based parallelism
 
 ---
 
