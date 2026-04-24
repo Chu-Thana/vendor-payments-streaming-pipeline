@@ -24,22 +24,33 @@ This project demonstrates ingestion, processing, reliability design, alerting, a
 ```mermaid
 flowchart LR
 
+%% ===== Streaming Layer =====
 subgraph Streaming
-    Producer --> Kafka --> Consumer --> Staging
+    Producer --> Kafka --> Consumer
+    Consumer -->|⚠ at-least-once| Staging
 end
 
+%% ===== Orchestration =====
 subgraph Orchestration
-    Airflow --> Staging
+    Airflow
 end
 
-subgraph Batch
-    Staging --> ETL --> Warehouse
+%% ===== Batch / Processing =====
+subgraph Processing
+    Staging --> ETL
+    ETL -->|✅ deduplication| Warehouse
 end
 
+%% ===== Serving =====
 subgraph Serving
     Warehouse --> API --> Client
 end
+
+%% ===== Connections =====
+Airflow --> ETL
 ```
+> The system uses at-least-once delivery in Kafka, which may introduce duplicate events.
+> These duplicates are resolved in the downstream ETL layer orchestrated by Airflow.
 
 ---
 
@@ -56,6 +67,22 @@ Design decision:
 
 Trade-off:
 - Simpler architecture vs Exactly-once complexity
+
+---
+
+## 🔁 Deduplication Strategy (Downstream Processing)
+
+To support at-least-once delivery, duplicate events may occur in this streaming pipeline.
+
+In this project (Kafka layer):
+- The consumer intentionally does NOT perform deduplication
+- The focus is on reliable ingestion and processing
+
+Deduplication is handled in a downstream pipeline:
+- Implemented in Project 4 (Airflow)
+- Ensures final data consistency before loading to the warehouse
+
+👉 This design clearly separates reliability (streaming layer) from data correctness (downstream processing)
 
 ---
 
@@ -179,12 +206,15 @@ python run_producer_duplicates.py
 
 ---
 
-# 🧠 Key Concept
+# 🧠 Key Design Insight
 
-Kafka (at-least-once)
-→ duplicate possible
-→ Airflow dedup
-→ clean data
+This system demonstrates a core streaming principle:
+
+- Streaming systems prioritize availability and reliability
+- At-least-once delivery ensures no data loss
+- Duplicate handling is shifted to downstream processing
+
+👉 This reflects real-world trade-offs in distributed data systems
 
 ---
 
@@ -200,24 +230,20 @@ Kafka (at-least-once)
 ---
 
 
-
----
-
-# 📊 Monitoring & Observability
-
-## 🔍 Airflow Monitoring
-
-![Airflow Monitoring](assets/08_airflow_monitoring.png)
-
-> Airflow DAG execution showing task status, retries, and pipeline health for batch + streaming integration
-
 ---
 
 ## 📈 Kafka Metrics & System Health
 
-![Kafka Metrics](assets/09_kafka_metrics.png)
+![Kafka Metrics](assets/02_kafka_event_flow.png)
 
-> Kafka topic and partition metrics from Confluent Cloud used to monitor throughput, lag, and system performance
+This view represents real-time event flow and throughput in the Kafka cluster.
+
+These metrics are used to:
+
+- monitor system throughput
+- detect consumer lag
+- validate real-time processing behavior
+- observe real-time system behavior under load
 
 ---
 
@@ -225,13 +251,20 @@ Kafka (at-least-once)
 
 ![Consumer Log](assets/03_consumer_processing_log.png)
 
-> Consumer log showing high-value detection and alert trigger, including event processing status and anomaly detection
+> Consumer log showing high-value detection and alert trigger, demonstrating real-time event processing and anomaly detection
+
+---
 
 
 # 📌 Summary
 
-This project demonstrates a **production-style streaming pipeline**:
+This project demonstrates a production-ready streaming system:
 
-**Ingestion → Processing → Reliability → Alerting → Orchestration → Serving**
+- Real-time ingestion with Kafka
+- Reliable processing using at-least-once delivery
+- Scalable architecture with partitioned consumers
+- Data correctness via downstream deduplication
+- Monitoring and alerting for observability
+- Demonstrates a production-style approach to handling real-time data with reliability and scalability in mind
 
 Designed to reflect **real-world data engineering trade-offs and scalability**
