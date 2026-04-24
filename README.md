@@ -6,12 +6,16 @@
 ![Redis](https://img.shields.io/badge/Deduplication-Redis-red)
 ![Airflow](https://img.shields.io/badge/Orchestration-Airflow-green)
 
-> Production-style real-time streaming pipeline with **Kafka, Redis, and Airflow**
+A production-style **real-time data pipeline** built with Kafka (Confluent Cloud), Python, and event-driven architecture.  
+This project demonstrates ingestion, processing, reliability design, alerting, and integration with downstream systems.
 
 ---
 
-## 📸 System Overview
+# 📸 System Overview
+
 ![Kafka Flow](assets/02_kafka_event_flow.png)
+
+> End-to-end flow: Producer → Kafka → Consumer → Staging → Airflow → Warehouse
 
 ---
 
@@ -21,97 +25,211 @@
 flowchart LR
 
 subgraph Streaming
-    Producer --> Kafka --> Consumer --> RawData
+    Producer --> Kafka --> Consumer --> Staging
+end
+
+subgraph Orchestration
+    Airflow --> Staging
 end
 
 subgraph Batch
-    RawData --> ETL --> Warehouse
+    Staging --> ETL --> Warehouse
 end
 
 subgraph Serving
     Warehouse --> API --> Client
 end
-
-subgraph Orchestration
-    Airflow --> ETL
-    Airflow --> Monitoring
-end
 ```
+
+---
+
+# ⚡ Delivery Guarantee & Data Reliability
+
+This system uses **at-least-once delivery**:
+
+- ✅ No data loss
+- ⚠️ Duplicate events may occur
+
+Design decision:
+- Keep consumer simple and reliable
+- Handle deduplication downstream (Airflow)
+
+Trade-off:
+- Simpler architecture vs Exactly-once complexity
 
 ---
 
 # 📸 Pipeline Walkthrough
 
 ## 1️⃣ Kafka Topics
+
 ![Kafka Topics](assets/01_kafka_topics_overview.png)
+
+- `sales_events`
+- `sales_alerts`
+- `duplicate_events`
 
 ---
 
-## 2️⃣ Event Flow
-![Kafka Flow](assets/02_kafka_event_flow.png)
+## 2️⃣ Event Flow (Producer → Kafka → Consumer)
+
+![Kafka Event Flow](assets/02_kafka_event_flow.png)
+
+- Producer sends events
+- Kafka distributes via partitions
+- Consumer processes in parallel
 
 ---
 
 ## 3️⃣ Consumer Processing
-![Consumer](assets/03_consumer_processing_log.png)
+
+![Consumer Log](assets/03_consumer_processing_log.png)
+
+- Reads events
+- Processes data
+- Writes to staging
+- Triggers alerts
+
+⚠️ At-least-once → duplicates possible
 
 ---
 
 ## 4️⃣ Staging Output
-![Staging](assets/04_staging_output_data.png)
+
+![Staging Data](assets/04_staging_output_data.png)
+
+- JSON structured events
+- enriched + metadata
+- ready for Airflow ingestion
 
 ---
 
-## 5️⃣ Duplicate Simulation
+## 5️⃣ Duplicate Event Simulation
+
 ![Duplicate Producer](assets/05_duplicate_event_producer.png)
 
+- Simulate duplicate events
+- Stress test reliability
+
 ---
 
-## 6️⃣ Deduplication (Consumer)
+## 6️⃣ Consumer Handling Duplicate
+
 ![Duplicate Detection](assets/06_duplicate_detection_consumer.png)
 
+- Consumer allows duplicates
+- Ensures no data loss
+
 ---
 
-## 7️⃣ Real-time Alerts
-![Alert](assets/07_realtime_alert_telegram.png)
+## 7️⃣ Real-time Alerts (Telegram)
+
+![Telegram Alert](assets/07_realtime_alert_telegram.png)
+
+Triggered alerts:
+- High-value sales
+- Risky profit scenarios
+
+---
+
+## 8️⃣ Downstream Deduplication (Airflow)
+
+- Deduplication handled in Airflow
+- Final dataset is clean
+- Supports at-least-once design
 
 ---
 
 # ⚙️ Features
 
-- Kafka real-time streaming (Confluent Cloud)
-- Consumer group processing
-- Redis-based deduplication
-- Real-time alert detection
-- JSONL staging output
-- Airflow batch integration
+- Real-time streaming (Kafka / Confluent Cloud)
+- At-least-once delivery (no data loss)
+- Downstream deduplication strategy
+- Event-driven alerting (Telegram)
+- Scalable consumer group architecture
+- Integrated with Airflow orchestration
 
 ---
 
-# 🧠 Key Concepts
+# 🧰 Tech Stack
 
-- Event-driven architecture
-- At-least-once processing
-- Partition-based scaling
-- Idempotent processing
-- Streaming + Batch hybrid design
+- Kafka (Confluent Cloud)
+- Python
+- Docker
+- Airflow
+- Redis
+- JSON
 
 ---
 
-# ▶️ Run
+# ▶️ How to Run
 
 ```bash
-python run_consumer.py consumer-A
+# Start producer
 python run_producer.py
+
+# Start consumer
+python run_consumer.py consumer-A
+
+# Test duplicate events
 python run_producer_duplicates.py
 ```
 
 ---
 
+# 🧠 Key Concept
+
+Kafka (at-least-once)
+→ duplicate possible
+→ Airflow dedup
+→ clean data
+
+---
+
+# 🧠 Key Learnings
+
+- Streaming pipeline design
+- Delivery guarantees (at-least-once)
+- Handling duplicates in distributed systems
+- Event-driven alerting
+- Kafka scaling (partitions & consumers)
+- End-to-end data pipeline integration
+
+---
+
+
+
+---
+
+# 📊 Monitoring & Observability
+
+## 🔍 Airflow Monitoring
+
+![Airflow Monitoring](assets/08_airflow_monitoring.png)
+
+> Airflow DAG execution showing task status, retries, and pipeline health for batch + streaming integration
+
+---
+
+## 📈 Kafka Metrics & System Health
+
+![Kafka Metrics](assets/09_kafka_metrics.png)
+
+> Kafka topic and partition metrics from Confluent Cloud used to monitor throughput, lag, and system performance
+
+---
+
+## 🧾 Consumer Log Insights
+
+![Consumer Log](assets/03_consumer_processing_log.png)
+
+> Consumer log showing high-value detection and alert trigger, including event processing status and anomaly detection
+
+
 # 📌 Summary
 
-This project demonstrates an **end-to-end streaming pipeline**:
+This project demonstrates a **production-style streaming pipeline**:
 
-**Ingestion → Processing → Deduplication → Alerting → Batch Integration**
+**Ingestion → Processing → Reliability → Alerting → Orchestration → Serving**
 
-Designed to reflect real-world data engineering systems.
+Designed to reflect **real-world data engineering trade-offs and scalability**
