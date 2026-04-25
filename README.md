@@ -1,270 +1,187 @@
 # 🚀 Kafka Streaming Pipeline
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
-![Kafka](https://img.shields.io/badge/Streaming-Kafka-orange)
-![Confluent](https://img.shields.io/badge/Kafka-Confluent_Cloud-purple)
-![Redis](https://img.shields.io/badge/Deduplication-Redis-red)
-![Airflow](https://img.shields.io/badge/Orchestration-Airflow-green)
-
-A production-style **real-time data pipeline** built with Kafka (Confluent Cloud), Python, and event-driven architecture.  
-This project demonstrates ingestion, processing, reliability design, alerting, and integration with downstream systems.
-
----
-
-# 📸 System Overview
-
-![Kafka Flow](assets/02_kafka_event_flow.png)
-
-> End-to-end flow: Producer → Kafka → Consumer → Staging → Airflow → Warehouse
+![Streaming](https://img.shields.io/badge/Streaming-Kafka-orange)
+![Kafka](https://img.shields.io/badge/Kafka-Confluent_Cloud-purple)
+![Deduplication](https://img.shields.io/badge/Deduplication-Redis-red)
+![Orchestration](https://img.shields.io/badge/Orchestration-Airflow-green)
+![Container](https://img.shields.io/badge/Container-Docker-blue)
+![Format](https://img.shields.io/badge/Format-JSONL-lightgrey)
 
 ---
 
-# 🏗 Architecture Overview
+## 📌 Summary
+
+This project implements a **production-style real-time streaming pipeline** using Kafka.
+
+It focuses on:
+
+- at-least-once delivery (no data loss)
+- duplicate handling using Redis
+- real-time alert detection
+- scalable event processing via partitions
+- duplicate handling using Redis (fast, in-memory dedup support)
+
+👉 Designed to simulate real-world streaming systems used in modern data platforms
+
+👉 Prioritizes **reliability over strict correctness**, following real-world distributed system design
+
+---
+
+## 🔗 Integration with Data Platform
+
+This streaming pipeline is part of a larger data platform:
+
+- Events are written to a staging layer (JSONL)
+- Airflow (Project 4) consumes staging data for transformation
+- Data is aggregated into the gold layer
+- Final outputs are served via cloud analytics (Project 5)
+
+👉 This project represents the **real-time ingestion layer** of the platform
+
+---
+
+## 🔄 Data Flow (Simplified)
+
+Producer → Kafka → Consumer → Staging → Airflow → Gold Layer → Analytics
+
+---
+
+## 🏗 Architecture Overview
 
 ```mermaid
 flowchart LR
 
-%% ===== Streaming Layer =====
 subgraph Streaming
-    Producer --> Kafka --> Consumer
-    Consumer -->|⚠ at-least-once| Staging
+    Producer --> Kafka --> Consumer --> Staging
 end
 
-%% ===== Orchestration =====
-subgraph Orchestration
-    Airflow
-end
-
-%% ===== Batch / Processing =====
 subgraph Processing
-    Staging --> ETL
-    ETL -->|✅ deduplication| Warehouse
+    Staging --> Transform --> Aggregation
 end
 
-%% ===== Serving =====
-subgraph Serving
-    Warehouse --> API --> Client
+subgraph Monitoring
+    Consumer --> Alerting
 end
-
-%% ===== Connections =====
-Airflow --> ETL
 ```
-> The system uses at-least-once delivery in Kafka, which may introduce duplicate events.
-> These duplicates are resolved in the downstream ETL layer orchestrated by Airflow.
 
 ---
 
-# ⚡ Delivery Guarantee & Data Reliability
+## ⚙️ Design Principles
 
-This system uses **at-least-once delivery**:
-
-- ✅ No data loss
-- ⚠️ Duplicate events may occur
-
-Design decision:
-- Keep consumer simple and reliable
-- Handle deduplication downstream (Airflow)
-
-Trade-off:
-- Simpler architecture vs Exactly-once complexity
+- At-least-once delivery (prioritize no data loss)
+- Lightweight consumer (no heavy state management)
+- Partition-based parallel processing
+- Event-driven architecture for scalability
+- Deduplication handled downstream (Airflow / processing layer)
 
 ---
 
-## 🔁 Deduplication Strategy (Downstream Processing)
+## 🔄 End-to-End Flow
 
-To support at-least-once delivery, duplicate events may occur in this streaming pipeline.
-
-In this project (Kafka layer):
-- The consumer intentionally does NOT perform deduplication
-- The focus is on reliable ingestion and processing
-
-Deduplication is handled in a downstream pipeline:
-- Implemented in Project 4 (Airflow)
-- Ensures final data consistency before loading to the warehouse
-
-👉 This design clearly separates reliability (streaming layer) from data correctness (downstream processing)
+1. Producer generates events  
+2. Kafka stores & distributes events  
+3. Consumer processes events  
+4. Events are written to staging (duplicates may exist)  
+5. Alerts triggered for critical events  
+6. Airflow handles transformation and deduplication downstream  
 
 ---
 
-# 📸 Pipeline Walkthrough
+## 📸 Pipeline Walkthrough
 
-## 1️⃣ Kafka Topics
-
+### 1️⃣ Kafka Topics
 ![Kafka Topics](assets/01_kafka_topics_overview.png)
 
-- `sales_events`
-- `sales_alerts`
-- `duplicate_events`
+> Partitioned topics enable scalable streaming ingestion
 
 ---
 
-## 2️⃣ Event Flow (Producer → Kafka → Consumer)
+### 2️⃣ Event Flow
+![Kafka Flow](assets/02_kafka_event_flow.png)
 
-Real-time streaming pipeline:
-
-- Producer sends events to Kafka
-- Kafka distributes events across partitions
-- Consumer processes events in parallel
-
-> Kafka enables scalable, distributed event processing using partition-based parallelism
+> Producer → Kafka → Consumer architecture
 
 ---
 
-## 3️⃣ Consumer Processing
+### 3️⃣ Consumer Processing
+![Consumer Logs](assets/03_consumer_processing_log.png)
 
-![Consumer Log](assets/03_consumer_processing_log.png)
-
-- Reads events
-- Processes data
-- Writes to staging
-- Triggers alerts
-
-⚠️ At-least-once → duplicates possible
+> Real-time processing, transformation, and validation
 
 ---
 
-## 4️⃣ Staging Output
+### 4️⃣ Staging Output
+![Staging](assets/04_staging_output_data.png)
 
-![Staging Data](assets/04_staging_output_data.png)
-
-- JSON structured events
-- enriched + metadata
-- ready for Airflow ingestion
+> Structured JSON output for downstream processing
 
 ---
 
-## 5️⃣ Duplicate Event Simulation
-
+### 5️⃣ Duplicate Simulation
 ![Duplicate Producer](assets/05_duplicate_event_producer.png)
 
-- Simulate duplicate events
-- Stress test reliability
+> Testing duplicate scenarios for reliability
 
 ---
 
-## 6️⃣ Consumer Handling Duplicate
+### 6️⃣ Deduplication
+![Dedup](assets/06_duplicate_detection_consumer.png)
 
-![Duplicate Detection](assets/06_duplicate_detection_consumer.png)
-
-- Consumer allows duplicates
-- Ensures no data loss
+> Duplicate events are detected and skipped
 
 ---
 
-## 7️⃣ Real-time Alerts (Telegram)
+### 7️⃣ Real-time Alerts
+![Alert](assets/07_realtime_alert_telegram.png)
 
-![Telegram Alert](assets/07_realtime_alert_telegram.png)
-
-Triggered alerts:
-- High-value sales
-- Risky profit scenarios
+> Business rules trigger real-time alerts via Telegram
 
 ---
 
-## 8️⃣ Downstream Deduplication (Airflow)
+## ⚡ Scalability Design
 
-- Deduplication handled in Airflow
-- Final dataset is clean
-- Supports at-least-once design
+- Kafka partitions enable horizontal scaling of consumers for parallel processing  
+- Consumer groups distribute workload across multiple instances  
+- The number of consumers is bounded by partitions (consumers ≤ partitions)  
+- The architecture allows independent scaling of ingestion and processing layers  
 
----
-
-# ⚙️ Features
-
-- Real-time streaming (Kafka / Confluent Cloud)
-- At-least-once delivery (no data loss)
-- Downstream deduplication strategy
-- Event-driven alerting (Telegram)
-- Scalable consumer group architecture
-- Integrated with Airflow orchestration
+👉 Designed for **high-throughput, distributed event processing**
 
 ---
 
-# 🧰 Tech Stack
+## 🚨 Failure Handling
 
-- Kafka (Confluent Cloud)
-- Python
-- Docker
-- Airflow
-- Redis
-- JSON
+- Consumers resume processing from committed offsets after failure  
+- Kafka ensures **at-least-once delivery**, preventing data loss  
+- Trade-off: duplicate events may occur  
+- Deduplication is handled downstream (Airflow / processing layer)  
 
----
-
-# ▶️ How to Run
-
-```bash
-# Start producer
-python run_producer.py
-
-# Start consumer
-python run_consumer.py consumer-A
-
-# Test duplicate events
-python run_producer_duplicates.py
-```
+👉 This design prioritizes **data reliability over strict correctness**
 
 ---
 
-# 🧠 Key Design Insight
+## 🧠 What This Project Demonstrates
 
-This system demonstrates a core streaming principle:
+This project demonstrates the design of a **production-style streaming system**:
 
-- Streaming systems prioritize availability and reliability
-- At-least-once delivery ensures no data loss
-- Duplicate handling is shifted to downstream processing
+- Real-time ingestion using Kafka  
+- Partition-based parallel processing  
+- At-least-once delivery and failure recovery  
+- Downstream deduplication strategy  
+- Event-driven alerting for anomaly detection  
 
-👉 This reflects real-world trade-offs in distributed data systems
-
----
-
-# 🧠 Key Learnings
-
-- Streaming pipeline design
-- Delivery guarantees (at-least-once)
-- Handling duplicates in distributed systems
-- Event-driven alerting
-- Kafka scaling (partitions & consumers)
-- End-to-end data pipeline integration
+👉 More importantly, it reflects **system-level thinking beyond individual tools**
 
 ---
 
+## 💡 Key Takeaway
 
----
+This project demonstrates how to design a **production-style streaming system**:
 
-## 📈 Kafka Metrics & System Health
+- Reliable ingestion using Kafka (at-least-once delivery)
+- Scalable processing via partitioned consumer architecture
+- Data correctness ensured through downstream deduplication (Redis + processing layer)
+- Real-time observability through alerting and monitoring
 
-![Kafka Metrics](assets/02_kafka_event_flow.png)
-
-This view represents real-time event flow and throughput in the Kafka cluster.
-
-These metrics are used to:
-
-- monitor system throughput
-- detect consumer lag
-- validate real-time processing behavior
-- observe real-time system behavior under load
-
----
-
-## 🧾 Consumer Log Insights
-
-![Consumer Log](assets/03_consumer_processing_log.png)
-
-> Consumer log showing high-value detection and alert trigger, demonstrating real-time event processing and anomaly detection
-
----
-
-
-# 📌 Summary
-
-This project demonstrates a production-ready streaming system:
-
-- Real-time ingestion with Kafka
-- Reliable processing using at-least-once delivery
-- Scalable architecture with partitioned consumers
-- Data correctness via downstream deduplication
-- Monitoring and alerting for observability
-- Demonstrates a production-style approach to handling real-time data with reliability and scalability in mind
-
-Designed to reflect **real-world data engineering trade-offs and scalability**
+👉 Not just a pipeline — but a **resilient, scalable event-driven system design**
