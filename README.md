@@ -1,4 +1,4 @@
-# 🚀 Kafka Streaming Pipeline (Project 3)
+# 🚀 Kafka Streaming Pipeline
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![Kafka](https://img.shields.io/badge/Streaming-Kafka-orange)
