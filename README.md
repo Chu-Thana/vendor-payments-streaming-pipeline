@@ -16,11 +16,11 @@ This project implements a **production-style real-time streaming pipeline** usin
 
 It focuses on:
 
-- at-least-once delivery (no data loss)
-- duplicate handling using Redis
-- real-time alert detection
-- scalable event processing via partitions
-- duplicate handling using Redis (fast, in-memory dedup support)
+- at-least-once delivery with duplicate-tolerant design
+- Redis-based deduplication for idempotent processing
+- real-time alerting with warning / critical severity levels
+- Kafka partitioning and consumer-group based parallel processing
+- pipeline observability through global metrics
 
 👉 Designed to simulate real-world streaming systems used in modern data platforms
 
@@ -69,11 +69,11 @@ end
 
 ## ⚙️ Design Principles
 
-- At-least-once delivery (prioritize no data loss)
-- Lightweight consumer (no heavy state management)
-- Partition-based parallel processing
-- Event-driven architecture for scalability
-- Deduplication handled downstream (Airflow / processing layer)
+- At-least-once delivery to prevent data loss
+- Redis-based deduplication for idempotent event processing
+- Partition-based parallel processing with Kafka consumer groups
+- Severity-based alerting: warning vs critical
+- Staging output for downstream Airflow transformation
 
 ---
 
@@ -139,6 +139,32 @@ end
 
 ---
 
+### 8️⃣ Metrics: Normal Run
+![Normal Metrics](assets/08_metrics_normal_run.png)
+
+> Normal streaming run with stable alert rate, critical ratio, and zero failed events
+
+---
+
+### 9️⃣ Metrics: Duplicate Stress Test
+![Duplicate Metrics](assets/09_metrics_with_duplicates.png)
+
+> Duplicate-heavy scenario validating Redis-based deduplication and pipeline stability
+> System maintained stable processing with zero data loss under duplicate-heavy conditions.
+
+---
+
+## 📊 Performance Metrics
+
+| Scenario | Events | Duplicate Rate | Alert Rate | Critical Ratio | Failed Events |
+|---|---:|---:|---:|---:|---:|
+| Normal Run | ~1.4K | ~4.9% | ~6.5% | ~18.7% | 0 |
+| Duplicate Stress Test | ~1.5K | ~5.1% | ~6.3% | ~18.0% | 0 |
+
+> Metrics demonstrate stable processing, duplicate handling, and severity-based alert classification under both normal and duplicate-heavy scenarios.
+
+---
+
 ## ⚡ Scalability Design
 
 - Kafka partitions enable horizontal scaling of consumers for parallel processing  
@@ -152,10 +178,11 @@ end
 
 ## 🚨 Failure Handling
 
-- Consumers resume processing from committed offsets after failure  
-- Kafka ensures **at-least-once delivery**, preventing data loss  
-- Trade-off: duplicate events may occur  
-- Deduplication is handled downstream (Airflow / processing layer)  
+- Kafka provides at-least-once delivery to avoid data loss
+- Redis deduplication prevents duplicate orders from corrupting downstream aggregation
+- Invalid events are isolated into failed event logs
+- Duplicate-heavy scenarios were tested to validate resilience
+- Alert metrics remain stable under stress testing
 
 👉 This design prioritizes **data reliability over strict correctness**
 
@@ -184,4 +211,4 @@ This project demonstrates how to design a **production-style streaming system**:
 - Data correctness ensured through downstream deduplication (Redis + processing layer)
 - Real-time observability through alerting and monitoring
 
-👉 Not just a pipeline — but a **resilient, scalable event-driven system design**
+👉 Not just a Kafka demo — this project demonstrates a resilient streaming ingestion layer with deduplication, alert severity, metrics, and stress-tested reliability.
