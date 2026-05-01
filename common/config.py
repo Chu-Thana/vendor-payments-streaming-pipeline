@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -46,6 +45,9 @@ TOPIC_RISKY_DISCOUNT_ALERTS = os.getenv(
     "risky_discount_profit_alerts"
 )
 
+TOPIC_ALERTS_CRITICAL = os.getenv("TOPIC_ALERTS_CRITICAL", "sales_alerts_critical")
+TOPIC_ALERTS_WARNING = os.getenv("TOPIC_ALERTS_WARNING", "sales_alerts_warning")
+
 # ==================================
 # Business rule thresholds
 # ==================================
@@ -75,3 +77,10 @@ REDIS_LOG_LEVEL = os.getenv("REDIS_LOG_LEVEL", "WARNING")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 ENABLE_TELEGRAM_ALERTS = os.getenv("ENABLE_TELEGRAM_ALERTS", "false").lower() == "true"
+
+# ==================================
+# RISKY
+# ==================================
+RISKY_SALES_THRESHOLD = float(os.getenv("RISKY_SALES_THRESHOLD", 10000))
+RISKY_PROFIT_THRESHOLD = float(os.getenv("RISKY_PROFIT_THRESHOLD", 100))
+RISKY_DISCOUNT_THRESHOLD = float(os.getenv("RISKY_DISCOUNT_THRESHOLD", 0.40))

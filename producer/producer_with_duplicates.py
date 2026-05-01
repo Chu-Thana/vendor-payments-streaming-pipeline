@@ -3,7 +3,7 @@ import time
 import logging
 
 from kafka import KafkaProducer
-
+from datetime import datetime
 from common.config import KAFKA_BROKER, TOPIC_SALES
 
 
@@ -54,12 +54,39 @@ def main() -> None:
     # These duplicates should be detected and skipped
     # by the consumer's Redis-based deduplication logic.
     events = [
-        {"order_id": 1001, "region": "East", "sales": 250.0},
-        {"order_id": 1002, "region": "West", "sales": 420.0},
-        {"order_id": 1001, "region": "East", "sales": 250.0},   # duplicate
-        {"order_id": 1003, "region": "Central", "sales": 180.0},
-        {"order_id": 1002, "region": "West", "sales": 420.0},   # duplicate
-        {"order_id": 1004, "region": "South", "sales": 510.0},
+        {
+            "event_id": "DUP-1001-A",
+            "order_id": "CA-DUP-1001",
+            "region": "East",
+            "category": "Technology",
+            "sub_category": "Phones",
+            "sales": 250.0,
+            "profit": 25.0,
+            "discount": 0.1,
+            "event_time": datetime.utcnow().isoformat() + "Z",
+        },
+        {
+            "event_id": "DUP-1002-A",
+            "order_id": "CA-DUP-1002",
+            "region": "West",
+            "category": "Technology",
+            "sub_category": "Phones",
+            "sales": 420.0,
+            "profit": 42.0,
+            "discount": 0.1,
+            "event_time": datetime.utcnow().isoformat() + "Z",
+        },
+        {
+            "event_id": "DUP-1001-B",
+            "order_id": "CA-DUP-1001",
+            "region": "East",
+            "category": "Technology",
+            "sub_category": "Phones",
+            "sales": 250.0,
+            "profit": 25.0,
+            "discount": 0.1,
+            "event_time": datetime.utcnow().isoformat() + "Z",
+        },
     ]
 
     # ==================================

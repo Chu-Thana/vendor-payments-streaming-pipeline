@@ -26,6 +26,11 @@ from common.config import (
     KAFKA_USERNAME,
     KAFKA_PASSWORD,
     LOG_LEVEL,
+    RISKY_SALES_THRESHOLD,
+    RISKY_PROFIT_THRESHOLD,
+    RISKY_DISCOUNT_THRESHOLD,
+    TOPIC_ALERTS_CRITICAL,
+    TOPIC_ALERTS_WARNING,
 )
 
 # ==================================
@@ -34,6 +39,14 @@ from common.config import (
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def parse_event_time(event_time: str):
+    try:
+        dt = datetime.fromisoformat(event_time)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except:
+        return None
 
 def append_jsonl(file_path: Path, record: dict) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,9 +77,9 @@ def build_kafka_consumer() -> KafkaConsumer:
     config = {
         "bootstrap_servers": KAFKA_BROKER,
         "value_deserializer": lambda m: json.loads(m.decode("utf-8")),
-        "auto_offset_reset": "earliest",
+        "auto_offset_reset": "latest",
         "enable_auto_commit": True,
-        "group_id": "sales-consumer-group",
+        "group_id": "sales-consumer-group-v3",
     }
 
     if KAFKA_SECURITY_PROTOCOL != "PLAINTEXT":
@@ -154,9 +167,9 @@ def main(consumer_name: str) -> None:
 
     raw_event_file = event_dir / "raw_sales_events.jsonl"
     aggregate_file = aggregates_dir / "sales_by_region.jsonl"
-    metrics_file = metric_dir / "metrics.json"
+    metrics_file = metric_dir / f"metrics_{consumer_name}.json"
     global_metrics_file = metric_dir / "global_metrics.json"
-    alert_file = alerts_dir / "high_value_sales.jsonl"
+    alert_file = alerts_dir / "alerts.jsonl"
     risky_alert_file = alerts_dir / "risky_discount_profit.jsonl"
     duplicate_file = alerts_dir / "duplicate_events.jsonl"
     failed_file = alerts_dir / "failed_events.jsonl"
@@ -165,13 +178,28 @@ def main(consumer_name: str) -> None:
 
     metrics = {
         "consumer": consumer_name,
+        "events_total": 0,
         "events_received": 0,
         "events_aggregated": 0,
         "duplicates_skipped": 0,
         "alerts_triggered": 0,
         "events_failed": 0,
-        "last_updated": None
+        "throughput_events_per_sec": 0.0,
+        "avg_latency_sec": 0.0,
+        "duplicate_rate_pct": 0.0,
+        "last_updated": None,
+
+        "alert_breakdown": {
+            "high_value": 0,
+            "high_discount": 0,
+            "low_profit": 0,
+            "risky": 0,
+            "warning": 0,
+            "critical": 0
+        }
     }
+    benchmark_start_time = time.time()
+    latencies = []
 
     def write_metrics() -> None:
         metrics["last_updated"] = datetime.now(UTC).isoformat()
@@ -179,14 +207,56 @@ def main(consumer_name: str) -> None:
             json.dump(metrics, fo, ensure_ascii=False, indent=2)
 
     def write_global_metrics() -> None:
+        events_received_total = int(redis_client.get("metrics:events_received_total") or 0)
+        events_aggregated_total = int(redis_client.get("metrics:events_aggregated_total") or 0)
+        duplicates_skipped_total = int(redis_client.get("metrics:duplicates_skipped_total") or 0)
+        alerts_triggered_total = int(redis_client.get("metrics:alerts_triggered_total") or 0)
+        alert_high_value_total = int(redis_client.get("metrics:alert_high_value_total") or 0)
+        alert_high_discount_total = int(redis_client.get("metrics:alert_high_discount_total") or 0)
+        alert_low_profit_total = int(redis_client.get("metrics:alert_low_profit_total") or 0)
+        events_failed_total = int(redis_client.get("metrics:events_failed_total") or 0)
+        alert_risky_total = int(redis_client.get("metrics:alert_risky_total") or 0)
+        alert_warning_total = int(redis_client.get("metrics:alert_warning_total") or 0)
+        alert_critical_total = int(redis_client.get("metrics:alert_critical_total") or 0)
+
+        events_total = events_received_total + duplicates_skipped_total
+
+        duplicate_rate_pct = (
+            round(duplicates_skipped_total / events_total * 100, 2)
+            if events_total > 0
+            else 0.0
+        )
+
         global_metrics = {
-            "events_received_total": int(redis_client.get("metrics:events_received_total") or 0),
-            "events_aggregated_total": int(redis_client.get("metrics:events_aggregated_total") or 0),
-            "duplicates_skipped_total": int(redis_client.get("metrics:duplicates_skipped_total") or 0),
-            "alerts_triggered_total": int(redis_client.get("metrics:alerts_triggered_total") or 0),
-            "events_failed_total": int(redis_client.get("metrics:events_failed_total") or 0),
-            "last_updated": datetime.now(UTC).isoformat()
+            "events_total": events_total,
+            "events_received_total": events_received_total,
+            "events_aggregated_total": events_aggregated_total,
+            "duplicates_skipped_total": duplicates_skipped_total,
+            "alerts_triggered_total": alerts_triggered_total,
+            "events_failed_total": events_failed_total,
+            "duplicate_rate_pct": duplicate_rate_pct,
+            "last_updated": datetime.now(UTC).isoformat(),
+            "alert_breakdown": {
+                "high_value": alert_high_value_total,
+                "high_discount": alert_high_discount_total,
+                "low_profit": alert_low_profit_total,
+                "risky": alert_risky_total,
+                "warning": alert_warning_total,
+                "critical": alert_critical_total
+            }
         }
+
+        total_alerts = alerts_triggered_total
+        total_events = events_received_total
+        critical = alert_critical_total
+
+        global_metrics["critical_ratio"] = round(
+            (critical / total_alerts) * 100, 2
+        ) if total_alerts > 0 else 0
+
+        global_metrics["alert_rate"] = round(
+            (total_alerts / total_events) * 100, 2
+        ) if total_events > 0 else 0
 
         with global_metrics_file.open("w", encoding="utf-8") as fx:
             json.dump(global_metrics, fx, ensure_ascii=False, indent=2)
@@ -205,11 +275,26 @@ def main(consumer_name: str) -> None:
     logger.info("%s writing staging events to %s", consumer_name, STAGING_FILE)
 
     for message in consumer:
+        metrics["events_total"] += 1
         try:
             event = message.value
             partition = message.partition
             offset = message.offset
             topic = message.topic
+
+            required_fields = [
+                "event_id",
+                "order_id",
+                "region",
+                "sales",
+                "profit",
+                "discount",
+                "event_time",
+            ]
+            missing_fields = [f for f in required_fields if f not in event]
+
+            if missing_fields:
+                raise ValueError(f"missing required fields: {missing_fields}")
 
             event_id = event.get("event_id")
             order_id = str(event["order_id"])
@@ -230,11 +315,45 @@ def main(consumer_name: str) -> None:
             is_duplicate = bool(redis_client.exists(dedup_key))
 
             if is_duplicate:
+                metrics["duplicates_skipped"] += 1
+                redis_client.incr("metrics:duplicates_skipped_total")
+
+                if metrics["events_total"] > 0:
+                    metrics["duplicate_rate_pct"] = round(
+                        metrics["duplicates_skipped"] / metrics["events_total"] * 100,
+                        2
+                    )
+
+                write_metrics()
+                write_global_metrics()
+
                 logger.warning("Duplicate event skipped: %s", event_id)
                 continue
 
+            # non-duplicate
             metrics["events_received"] += 1
             redis_client.incr("metrics:events_received_total")
+
+            # ---- benchmark metrics ----
+            elapsed = time.time() - benchmark_start_time
+            if elapsed > 0:
+                metrics["throughput_events_per_sec"] = round(metrics["events_received"] / elapsed, 2)
+
+            event_dt = parse_event_time(event_time)
+            if event_dt is not None:
+                latency_sec = (datetime.now(timezone.utc) - event_dt).total_seconds()
+                latencies.append(latency_sec)
+
+                if len(latencies) > 1000:
+                    latencies.pop(0)
+
+                metrics["avg_latency_sec"] = round(sum(latencies) / len(latencies), 2)
+
+            if metrics["events_received"] > 0:
+                metrics["duplicate_rate_pct"] = round(
+                    metrics["duplicates_skipped"] / metrics["events_received"] * 100,
+                    2
+                )
 
             enriched_event = {
                 "event_id": event_id,
@@ -270,6 +389,21 @@ def main(consumer_name: str) -> None:
             if not was_set:
                 metrics["duplicates_skipped"] += 1
                 redis_client.incr("metrics:duplicates_skipped_total")
+
+                if metrics["events_received"] > 0:
+                    metrics["duplicate_rate_pct"] = round(
+                        metrics["duplicates_skipped"] / metrics["events_received"] * 100,
+                        2
+                    )
+
+                if metrics["events_received"] % 1000 == 0:
+                    logger.info(
+                        "streaming benchmark | events=%s throughput=%s events/sec avg_latency=%s sec duplicate_rate=%s%%",
+                        metrics["events_received"],
+                        metrics["throughput_events_per_sec"],
+                        metrics["avg_latency_sec"],
+                        metrics["duplicate_rate_pct"],
+                    )
 
                 write_metrics()
                 write_global_metrics()
@@ -323,12 +457,22 @@ def main(consumer_name: str) -> None:
 
             append_jsonl(aggregate_file, aggregate_snapshot)
 
-            if discount >= HIGH_DISCOUNT_THRESHOLD and profit <= LOW_PROFIT_THRESHOLD:
+            if (
+                    sales >= RISKY_SALES_THRESHOLD
+                    and discount >= RISKY_DISCOUNT_THRESHOLD
+                    and profit <= RISKY_PROFIT_THRESHOLD
+            ):
                 metrics["alerts_triggered"] += 1
+                metrics["alert_breakdown"]["risky"] += 1
+                metrics["alert_breakdown"]["critical"] += 1
+
                 redis_client.incr("metrics:alerts_triggered_total")
+                redis_client.incr("metrics:alert_risky_total")
+                redis_client.incr("metrics:alert_critical_total")
 
                 risky_alert_event = {
                     "alert_type": "risky_discount_profit",
+                    "severity": "critical",
                     "detected_at": datetime.now(UTC).isoformat(),
                     "consumer": consumer_name,
                     "topic": topic,
@@ -342,18 +486,22 @@ def main(consumer_name: str) -> None:
                     "profit": profit,
                     "discount": discount,
                     "event_time": event_time,
+                    "alert_breakdown": {
+                        "high_value": int(sales >= HIGH_VALUE_THRESHOLD),
+                        "high_discount": int(discount >= HIGH_DISCOUNT_THRESHOLD),
+                        "low_profit": int(profit <= LOW_PROFIT_THRESHOLD),
+                        "risky": 1
+                    }
                 }
 
-                logger.warning(
-                    "risky discount-profit detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s category=%s sub_category=%s sales=%.2f profit=%.2f discount=%.2f",
+                logger.error(
+                    "🚨 CRITICAL alert detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%.2f profit=%.2f discount=%.2f",
                     consumer_name,
                     topic,
                     partition,
                     offset,
                     order_id,
                     region,
-                    category,
-                    sub_category,
                     sales,
                     profit,
                     discount,
@@ -362,13 +510,14 @@ def main(consumer_name: str) -> None:
                 append_jsonl(risky_alert_file, risky_alert_event)
 
                 alert_producer.send(
-                    topic=TOPIC_ALERTS,
+                    topic=TOPIC_ALERTS_CRITICAL,
                     key=region.encode(),
                     value=risky_alert_event
                 )
                 alert_producer.flush()
 
                 message_text = (
+                    "🚨 CRITICAL ALERT\n"
                     "⚠️ Risky discount-profit event\n"
                     f"consumer: {consumer_name}\n"
                     f"order_id: {event['order_id']}\n"
@@ -382,12 +531,37 @@ def main(consumer_name: str) -> None:
                 )
                 send_telegram_alert(message_text)
 
-            if sales > HIGH_VALUE_THRESHOLD:
+            alert_types = []
+
+            if sales >= HIGH_VALUE_THRESHOLD:
                 metrics["alerts_triggered"] += 1
+                metrics["alert_breakdown"]["high_value"] += 1
                 redis_client.incr("metrics:alerts_triggered_total")
+                redis_client.incr("metrics:alert_high_value_total")
+                alert_types.append("high_value")
+
+            if discount >= HIGH_DISCOUNT_THRESHOLD:
+                metrics["alerts_triggered"] += 1
+                metrics["alert_breakdown"]["high_discount"] += 1
+                redis_client.incr("metrics:alerts_triggered_total")
+                redis_client.incr("metrics:alert_high_discount_total")
+                alert_types.append("high_discount")
+
+            if profit <= LOW_PROFIT_THRESHOLD:
+                metrics["alerts_triggered"] += 1
+                metrics["alert_breakdown"]["low_profit"] += 1
+                redis_client.incr("metrics:alerts_triggered_total")
+                redis_client.incr("metrics:alert_low_profit_total")
+                alert_types.append("low_profit")
+
+            if alert_types:
+
+                metrics["alert_breakdown"]["warning"] += 1
+                redis_client.incr("metrics:alert_warning_total")
 
                 alert_event = {
-                    "alert_type": "high_value_sale",
+                    "alert_type": ",".join(alert_types),
+                    "severity": "warning",
                     "detected_at": datetime.now(UTC).isoformat(),
                     "consumer": consumer_name,
                     "topic": topic,
@@ -398,22 +572,32 @@ def main(consumer_name: str) -> None:
                     "sales": sales,
                 }
 
+                append_jsonl(alert_file, alert_event)
+
                 logger.warning(
-                    "high value sale detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s sales=%s",
-                    consumer_name, topic, partition, offset, order_id, region, sales
+                    "⚠️ WARNING alert detected | consumer=%s topic=%s partition=%s offset=%s order_id=%s region=%s alert_types=%s sales=%.2f",
+                    consumer_name,
+                    topic,
+                    partition,
+                    offset,
+                    order_id,
+                    region,
+                    alert_types,
+                    sales,
                 )
 
                 append_jsonl(alert_file, alert_event)
 
                 alert_producer.send(
-                    topic=TOPIC_ALERTS,
+                    topic=TOPIC_ALERTS_WARNING,
                     key=region.encode(),
                     value=alert_event
                 )
                 alert_producer.flush()
 
                 message_text = (
-                    "🚨 High-value sale detected\n"
+                    "⚠️ WARNING ALERT\n"
+                    "High value / discount / low profit detected\n"
                     f"consumer: {consumer_name}\n"
                     f"order_id: {event['order_id']}\n"
                     f"region: {event['region']}\n"
@@ -463,8 +647,11 @@ def main(consumer_name: str) -> None:
                 "error": str(e),
             }
 
+            logger.error("failed raw event: %s", getattr(message, "value", None))
+
             logger.exception(
-                "event processing failed | consumer=%s topic=%s partition=%s offset=%s",
+                "event processing failed | error=%s | consumer=%s topic=%s partition=%s offset=%s",
+                str(e),
                 consumer_name,
                 getattr(message, "topic", None),
                 getattr(message, "partition", None),
