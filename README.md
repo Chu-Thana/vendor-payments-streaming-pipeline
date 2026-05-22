@@ -47,23 +47,13 @@ Producer → Kafka → Consumer → Staging → Airflow → Gold Layer → Analy
 
 ---
 
-## 🏗 Architecture Overview
+## ⚙️ Architecture Overview
 
-```mermaid
-flowchart LR
+![Kafka Streaming Pipeline Architecture](assets/00_kafka-streaming-pipeline-architecture.png)
 
-subgraph Streaming
-    Producer --> Kafka --> Consumer --> Staging
-end
+This architecture shows the streaming ingestion layer of the platform, where simulated sales events are produced into Kafka, consumed by a consumer group, deduplicated with Redis, processed with validation and alerting logic, and persisted into a staging layer for downstream Airflow orchestration.
 
-subgraph Processing
-    Staging --> Transform --> Aggregation
-end
-
-subgraph Monitoring
-    Consumer --> Alerting
-end
-```
+**Design principle:** Prevent data loss first, then handle duplicates safely.
 
 ---
 
