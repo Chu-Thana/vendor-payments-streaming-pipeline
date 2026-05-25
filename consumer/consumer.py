@@ -45,7 +45,7 @@ def parse_event_time(event_time: str):
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
-    except:
+    except Exception:
         return None
 
 def append_jsonl(file_path: Path, record: dict) -> None:

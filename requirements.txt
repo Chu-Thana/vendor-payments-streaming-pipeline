@@ -1,9 +1,6 @@
-# Kafka client for producers and consumers
-kafka-python>=2.0.2
-
-# Redis client for deduplication and global metrics
+kafka-python==2.0.2
 redis>=5.0.0
-
-kafka-python
 requests
 python-dotenv
+pytest
+ruff
