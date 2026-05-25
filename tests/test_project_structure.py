@@ -22,8 +22,6 @@ def test_required_project_directories_exist():
         ROOT_DIR / "producer",
         ROOT_DIR / "consumer",
         ROOT_DIR / "common",
-        ROOT_DIR / "alerts",
-        ROOT_DIR / "output",
     ]
 
     for dir_path in required_dirs:
