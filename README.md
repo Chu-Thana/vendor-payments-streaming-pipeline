@@ -7,6 +7,9 @@
 ![Orchestration](https://img.shields.io/badge/Orchestration-Airflow-green)
 ![Container](https://img.shields.io/badge/Container-Docker-blue)
 ![Format](https://img.shields.io/badge/Format-JSONL-lightgrey)
+![CI](https://github.com/Chu-Thana/kafka-streaming-pipeline/actions/workflows/ci.yml/badge.svg)
+![Testing](https://img.shields.io/badge/Testing-pytest-0A9EDC?logo=pytest&logoColor=white)
+![Code Quality](https://img.shields.io/badge/Code%20Quality-Ruff-8A2BE2)
 
 ---
 
@@ -25,6 +28,23 @@ It focuses on:
 👉 Designed to simulate real-world streaming systems used in modern data platforms
 
 👉 Prioritizes **reliability over strict correctness**, following real-world distributed system design
+
+---
+
+## ⚙️ CI Validation
+
+![Project 3 Kafka Streaming CI](assets/cicd/project3-kafka-streaming-ci-success.png)
+
+This project includes a GitHub Actions CI workflow that runs automatically on every push to the `main` branch.
+
+The CI pipeline validates:
+
+- Code quality with Ruff
+- Project structure for Kafka streaming components
+- Required producer, consumer, and common modules
+- Docker Compose configuration for the streaming stack
+
+👉 This helps ensure that the Kafka streaming project remains maintainable, structurally consistent, and ready for local container-based execution.
 
 ---
 
