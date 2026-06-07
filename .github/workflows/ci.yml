@@ -1,13 +1,13 @@
-name: CI - Project 3 Kafka Streaming
+name: CI - Vendor Payments Streaming Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, refactor/vendor-payments-streaming]
   pull_request:
     branches: [main]
 
 jobs:
-  validate-streaming:
+  validate-streaming-pipeline:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,9 +28,9 @@ jobs:
         run: |
           python -m ruff check .
 
-      - name: Run project structure tests
+      - name: Run unit tests
         run: |
-          python -m pytest tests/test_project_structure.py
+          python -m pytest -v
 
       - name: Validate Docker Compose config
         run: |
