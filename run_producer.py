@@ -1,39 +1,22 @@
 """
-Entry point for running the standard Kafka producer.
+Entry point for running the Vendor Payments Kafka producer.
 
-Why this file exists
---------------------
-The project is organized into packages such as:
-
-    producer/
-    consumer/
-    common/
-
-This structure keeps the code modular and clean, but it also means
-running internal files directly can be inconvenient.
-
-Instead of asking users to run:
-
-    python -m producer.producer
-
-we provide a simple entry point:
+This wrapper keeps the command simple:
 
     python run_producer.py
 
-This improves developer experience while preserving a clean package structure.
+The producer reads the prepared Vendor Payments streaming sample,
+builds Kafka events, intentionally injects duplicate events to simulate
+retry/replay scenarios, and publishes them to the vendor payments Kafka topic.
 """
 
-# Import the main producer function from the producer module
 from producer.producer import main
 
 
-def run():
-    """
-    Start the standard event producer.
-    """
+def run() -> None:
+    """Start the Vendor Payments event producer."""
     main()
 
 
-# Standard Python entry point
 if __name__ == "__main__":
     run()
