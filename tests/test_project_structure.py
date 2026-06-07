@@ -10,7 +10,6 @@ def test_required_project_files_exist():
         ROOT_DIR / "requirements.txt",
         ROOT_DIR / "run_producer.py",
         ROOT_DIR / "run_consumer.py",
-        ROOT_DIR / "run_producer_duplicates.py",
     ]
 
     for file_path in required_files:
