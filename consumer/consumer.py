@@ -13,6 +13,8 @@ from kafka.errors import NoBrokersAvailable
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
+from common.alert_notifier import send_telegram_alert  # noqa: E402
+
 from common.config import (  # noqa: E402
     KAFKA_BROKER,
     KAFKA_PASSWORD,
@@ -22,7 +24,14 @@ from common.config import (  # noqa: E402
     LOG_LEVEL,
     STAGING_FILE,
     TOPIC_VENDOR_PAYMENTS,
+    TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT,
 )
+
+from common.large_payment_alert import (  # noqa: E402
+    build_large_payment_alert_message,
+    is_large_payment_event,
+)
+
 from common.dedup import RedisDeduplicator  # noqa: E402
 from common.reporting import (  # noqa: E402
     build_streaming_summary_report,
@@ -125,6 +134,7 @@ def consume_vendor_payment_events(
         "accepted_events": 0,
         "rejected_duplicates": 0,
         "failed_events": 0,
+        "large_payment_alerts_sent": 0,
     }
 
     logger.info("%s started and waiting for messages...", consumer_name)
@@ -141,6 +151,23 @@ def consume_vendor_payment_events(
                 if deduplicator.should_accept(event):
                     write_event_to_staging(event)
                     metrics["accepted_events"] += 1
+
+                    if (
+                            is_large_payment_event(event)
+                            and metrics["large_payment_alerts_sent"] < TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT
+                    ):
+                        alert_message = build_large_payment_alert_message(event)
+                        alert_sent = send_telegram_alert(alert_message)
+
+                        if alert_sent:
+                            metrics["large_payment_alerts_sent"] += 1
+
+                        logger.warning(
+                            "large payment alert evaluated | consumer=%s event_id=%s alert_sent=%s",
+                            consumer_name,
+                            event["event_id"],
+                            alert_sent,
+                        )
 
                     logger.info(
                         "accepted event | consumer=%s topic=%s partition=%s offset=%s event_id=%s",
@@ -190,6 +217,8 @@ def consume_vendor_payment_events(
         topic=TOPIC_VENDOR_PAYMENTS,
         staging_file=STAGING_FILE,
     )
+
+    report["large_payment_alerts_sent"] = metrics["large_payment_alerts_sent"]
 
     if metrics["failed_events"]:
         report["failed_events"] = metrics["failed_events"]

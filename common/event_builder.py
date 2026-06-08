@@ -44,6 +44,7 @@ def build_vendor_payment_event(row: pd.Series) -> dict[str, Any]:
         ),
         "fiscal_year": _to_json_safe_value(row.get("fiscal_year")),
         "vendor_name": _to_json_safe_value(row.get("vendor_name")),
+        "vouchers_paid": _to_json_safe_value(row.get("vouchers_paid")),
         "department_name": _to_json_safe_value(row.get("department_name")),
         "payment_status": _to_json_safe_value(row.get("payment_status")),
         "payment_amount": _to_json_safe_value(row.get("payment_amount")),

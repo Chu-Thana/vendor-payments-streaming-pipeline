@@ -112,6 +112,10 @@ LARGE_PAYMENT_THRESHOLD = float(
     os.getenv("LARGE_PAYMENT_THRESHOLD", "1000000")
 )
 
+TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT = int(
+    os.getenv("TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT", "5")
+)
+
 # ==================================
 # Logging
 # ==================================
