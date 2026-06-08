@@ -58,3 +58,20 @@ kafka_data/
 build/
 dist/
 *.egg-info/
+
+# ==================================
+# Generated streaming data
+# ==================================
+data/input/*.csv
+output/staging/*
+output/reports/*.json
+
+# ==================================
+# Keep folder placeholders
+# ==================================
+!data/input/.gitkeep
+!output/
+!output/staging/
+!output/staging/.gitkeep
+!output/reports/
+!output/reports/.gitkeep

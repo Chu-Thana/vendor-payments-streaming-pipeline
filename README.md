@@ -1,224 +1,675 @@
-# 🚀 Kafka Streaming Pipeline
+# Vendor Payments Streaming Pipeline
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![Streaming](https://img.shields.io/badge/Streaming-Kafka-orange)
-![Kafka](https://img.shields.io/badge/Kafka-Confluent_Cloud-purple)
 ![Deduplication](https://img.shields.io/badge/Deduplication-Redis-red)
-![Orchestration](https://img.shields.io/badge/Orchestration-Airflow-green)
+![Alerting](https://img.shields.io/badge/Alerting-Telegram-blue)
 ![Container](https://img.shields.io/badge/Container-Docker-blue)
-![Format](https://img.shields.io/badge/Format-JSONL-lightgrey)
-![CI](https://github.com/Chu-Thana/kafka-streaming-pipeline/actions/workflows/ci.yml/badge.svg)
-![Testing](https://img.shields.io/badge/Testing-pytest-0A9EDC?logo=pytest&logoColor=white)
-![Code Quality](https://img.shields.io/badge/Code%20Quality-Ruff-8A2BE2)
+![Testing](https://img.shields.io/badge/Testing-pytest-green)
+![Code Quality](https://img.shields.io/badge/Code%20Quality-Ruff-purple)
 
 ---
 
-## 📌 Summary
+## Summary
 
-This project implements a **production-style real-time streaming pipeline** using Kafka.
+This project implements a Kafka-based streaming pipeline using real Vendor Payments data.
 
-It focuses on:
+It simulates a production-style streaming ingestion workflow where cleaned Vendor Payments records are converted into events, published to Kafka, intentionally duplicated to simulate retry/replay scenarios, consumed by a Kafka consumer, deduplicated with Redis, written to a staging layer, summarized in a streaming report, and monitored through Telegram large-payment alerts.
 
-- at-least-once delivery with duplicate-tolerant design
-- Redis-based deduplication for idempotent processing
-- real-time alerting with warning / critical severity levels
-- Kafka partitioning and consumer-group based parallel processing
-- pipeline observability through global metrics
+The main design principle is:
 
-👉 Designed to simulate real-world streaming systems used in modern data platforms
+```text
+Prevent data loss first, then handle duplicates safely.
+```
 
-👉 Prioritizes **reliability over strict correctness**, following real-world distributed system design
+This project is designed as the real-time ingestion layer of a broader Vendor Payments data platform.
 
 ---
 
-## ⚙️ CI Validation
+## Role in the Data Engineering Portfolio
 
-![Project 3 Kafka Streaming CI](assets/cicd/project3-kafka-streaming-ci-success.png)
+This project is **Project 3** in the Vendor Payments Data Engineering Portfolio.
 
-This project includes a GitHub Actions CI workflow that runs automatically on every push to the `main` branch.
+It connects with the completed batch and cloud track:
 
-The CI pipeline validates:
+```text
+Project 1: Vendor Payments Batch ETL Foundation
+Project 3: Kafka Streaming Pipeline with Redis Deduplication
+Project 4: Airflow Orchestration
+Project 5: AWS S3 Data Lake + Athena Analytics
+```
 
-- Code quality with Ruff
-- Project structure for Kafka streaming components
-- Required producer, consumer, and common modules
-- Docker Compose configuration for the streaming stack
-
-👉 This helps ensure that the Kafka streaming project remains maintainable, structurally consistent, and ready for local container-based execution.
-
----
-
-## 🔗 Integration with Data Platform
-
-This streaming pipeline is part of a larger data platform:
-
-- Events are written to a staging layer (JSONL)
-- Airflow (Project 4) consumes staging data for transformation
-- Data is aggregated into the gold layer
-- Final outputs are served via cloud analytics (Project 5)
-
-👉 This project represents the **real-time ingestion layer** of the platform
+Project 3 focuses on streaming ingestion, duplicate-tolerant processing, first-level deduplication, staging output, and operational alerting before downstream Airflow validation.
 
 ---
 
-## 🔄 Data Flow (Simplified)
+## Architecture
 
-Producer → Kafka → Consumer → Staging → Airflow → Gold Layer → Analytics
+![Vendor Payments Streaming Pipeline Architecture](assets/vendor-payments-streaming/01_architecture_diagram.png)
 
----
-
-## ⚙️ Architecture Overview
-
-![Kafka Streaming Pipeline Architecture](assets/00_kafka-streaming-pipeline-architecture.png)
-
-This architecture shows the streaming ingestion layer of the platform, where simulated sales events are produced into Kafka, consumed by a consumer group, deduplicated with Redis, processed with validation and alerting logic, and persisted into a staging layer for downstream Airflow orchestration.
-
-**Design principle:** Prevent data loss first, then handle duplicates safely.
-
----
-
-## ⚙️ Design Principles
-
-- At-least-once delivery to prevent data loss
-- Redis-based deduplication for idempotent event processing
-- Partition-based parallel processing with Kafka consumer groups
-- Severity-based alerting: warning vs critical
-- Staging output for downstream Airflow transformation
+```text
+Project 1 Silver Stream Sample
+→ Prepare Streaming Input
+→ Vendor Payment Event Builder
+→ Kafka Producer
+→ Duplicate Injection
+→ Kafka Topic
+→ Kafka Consumer
+→ Redis First-Level Deduplication
+→ Accepted Events / Rejected Duplicates
+→ Streaming Staging Output
+→ Summary Report + Telegram Alert
+→ Airflow Downstream Validation
+```
 
 ---
 
-## 🔄 End-to-End Flow
+## Final Run Result
 
-1. Producer generates events  
-2. Kafka stores & distributes events  
-3. Consumer processes events  
-4. Events are written to staging (duplicates may exist)  
-5. Alerts triggered for critical events  
-6. Airflow handles transformation and deduplication downstream  
+The final streaming simulation used **100,000 cleaned silver-level Vendor Payments records** from Project 1.
 
----
+The producer intentionally injected 5% duplicate/replay events:
 
-## 📸 Pipeline Walkthrough
+```text
+Base events: 100,000
+Duplicate events injected: 5,000
+Total events produced: 105,000
+Duplicate rate configured: 0.0500
+```
 
-### 1️⃣ Kafka Topics
-![Kafka Topics](assets/01_kafka_topics_overview.png)
+The consumer processed all Kafka events and applied Redis first-level deduplication:
 
-> Partitioned topics enable scalable streaming ingestion
+```text
+Consumed events: 105,000
+Accepted events: 100,000
+Rejected duplicates: 5,000
+Failed events: 0
+```
 
----
+The staging output contains:
 
-### 2️⃣ Event Flow
-![Kafka Flow](assets/02_kafka_event_flow.png)
+```text
+Accepted staging records: 100,000
+```
 
-> Producer → Kafka → Consumer architecture
+Telegram alerting was also enabled for large vendor payments:
 
----
-
-### 3️⃣ Consumer Processing
-![Consumer Logs](assets/03_consumer_processing_log.png)
-
-> Real-time processing, transformation, and validation
-
----
-
-### 4️⃣ Staging Output
-![Staging](assets/04_staging_output_data.png)
-
-> Structured JSON output for downstream processing
+```text
+large_payment_alerts_sent: 5
+```
 
 ---
 
-### 5️⃣ Duplicate Simulation
-![Duplicate Producer](assets/05_duplicate_event_producer.png)
+## Evidence Screenshots
 
-> Testing duplicate scenarios for reliability
+### 1. Kafka, Redis, and Zookeeper Services
 
----
+![Kafka Services and Topic](assets/vendor-payments-streaming/02_kafka_services_and_topic.png)
 
-### 6️⃣ Deduplication
-![Dedup](assets/06_duplicate_detection_consumer.png)
-
-> Duplicate events are detected and skipped
+This shows the local streaming stack running with Kafka, Redis, and Zookeeper, including the `vendor_payments_events` topic.
 
 ---
 
-### 7️⃣ Real-time Alerts
-![Alert](assets/07_realtime_alert_telegram.png)
+### 2. Kafka Producer Run
 
-> Business rules trigger real-time alerts via Telegram
+![Producer 105000 Events](assets/vendor-payments-streaming/03_producer_105000_events.png)
 
----
-
-### 8️⃣ Metrics: Normal Run
-![Normal Metrics](assets/08_metrics_normal_run.png)
-
-> Normal streaming run with stable alert rate, critical ratio, and zero failed events
+The producer published 100,000 base events and injected 5,000 duplicate/replay events.
 
 ---
 
-### 9️⃣ Metrics: Duplicate Stress Test
-![Duplicate Metrics](assets/09_metrics_with_duplicates.png)
+### 3. Kafka Consumer with Redis Deduplication
 
-> Duplicate-heavy scenario validating Redis-based deduplication and pipeline stability
-> System maintained stable processing with zero data loss under duplicate-heavy conditions.
+![Consumer Dedup Result](assets/vendor-payments-streaming/04_consumer_dedup_100k_result.png)
 
----
-
-## 📊 Performance Metrics
-
-| Scenario | Events | Duplicate Rate | Alert Rate | Critical Ratio | Failed Events |
-|---|---:|---:|---:|---:|---:|
-| Normal Run | ~1.4K | ~4.9% | ~6.5% | ~18.7% | 0 |
-| Duplicate Stress Test | ~1.5K | ~5.1% | ~6.3% | ~18.0% | 0 |
-
-> Metrics demonstrate stable processing, duplicate handling, and severity-based alert classification under both normal and duplicate-heavy scenarios.
+The consumer processed 105,000 events, accepted 100,000 unique events, rejected 5,000 duplicates, and recorded 0 failed events.
 
 ---
 
-## ⚡ Scalability Design
+### 4. Streaming Summary Report
 
-- Kafka partitions enable horizontal scaling of consumers for parallel processing  
-- Consumer groups distribute workload across multiple instances  
-- The number of consumers is bounded by partitions (consumers ≤ partitions)  
-- The architecture allows independent scaling of ingestion and processing layers  
+![Streaming Summary Report](assets/vendor-payments-streaming/08_streaming_summary_report_with_alerts.png)
 
-👉 Designed for **high-throughput, distributed event processing**
+The report summarizes produced events, accepted events, rejected duplicates, duplicate rate, dedup strategy, staging output, and alert count.
 
 ---
 
-## 🚨 Failure Handling
+### 5. Staging Output Row Count
 
-- Kafka provides at-least-once delivery to avoid data loss
-- Redis deduplication prevents duplicate orders from corrupting downstream aggregation
-- Invalid events are isolated into failed event logs
-- Duplicate-heavy scenarios were tested to validate resilience
-- Alert metrics remain stable under stress testing
+![Staging Output Row Count](assets/vendor-payments-streaming/06_staging_output_100k_row_count.png)
 
-👉 This design prioritizes **data reliability over strict correctness**
+The staging JSONL output contains 100,000 accepted records.
 
 ---
 
-## 🧠 What This Project Demonstrates
+### 6. Telegram Large Payment Alert
 
-This project demonstrates the design of a **production-style streaming system**:
+![Telegram Large Payment Alert](assets/vendor-payments-streaming/07_telegram_large_payment_alert.png)
 
-- Real-time ingestion using Kafka  
-- Partition-based parallel processing  
-- At-least-once delivery and failure recovery  
-- Downstream deduplication strategy  
-- Event-driven alerting for anomaly detection  
-
-👉 More importantly, it reflects **system-level thinking beyond individual tools**
+Telegram alerts are triggered when `vouchers_paid >= 1,000,000`.
 
 ---
 
-## 💡 Key Takeaway
+### 7. Tests Passed
 
-This project demonstrates how to design a **production-style streaming system**:
+![Tests Passed](assets/vendor-payments-streaming/09_tests_passed.png)
 
-- Reliable ingestion using Kafka (at-least-once delivery)
-- Scalable processing via partitioned consumer architecture
-- Data correctness ensured through downstream deduplication (Redis + processing layer)
-- Real-time observability through alerting and monitoring
+The project passes Ruff and pytest validation.
 
-👉 Not just a Kafka demo — this project demonstrates a resilient streaming ingestion layer with deduplication, alert severity, metrics, and stress-tested reliability.
+---
+
+## Data Flow
+
+```text
+Project 1 silver stream sample
+→ data/input/vendor_payments_stream_sample.csv
+→ producer builds vendor payment events
+→ producer publishes events to Kafka
+→ duplicate events are intentionally injected
+→ consumer reads from Kafka
+→ Redis checks event:{event_id}
+→ accepted events are written to staging
+→ duplicate events are rejected
+→ large payment alerts are sent to Telegram
+→ summary report is generated
+→ staging output is ready for Airflow downstream validation
+```
+
+---
+
+## Design Principle
+
+Distributed streaming systems may deliver events more than once.
+
+This project follows an **at-least-once processing mindset**:
+
+```text
+Prevent data loss first, then handle duplicates safely.
+```
+
+Kafka is used for reliable event transport, while Redis is used as a fast first-level deduplication store before writing accepted events to staging.
+
+The goal is not to claim exactly-once processing at the ingestion layer. Instead, the pipeline avoids data loss first and then handles duplicates safely through explicit deduplication.
+
+---
+
+## Key Features
+
+* Uses real Vendor Payments data from Project 1
+* Streams from cleaned silver-level Vendor Payments records
+* Generates a 100,000-row streaming input sample
+* Publishes Vendor Payments events to Kafka
+* Intentionally injects duplicate events to simulate retry/replay scenarios
+* Applies Redis-based first-level deduplication
+* Writes accepted events to staging JSONL
+* Rejects duplicate events before staging
+* Generates a streaming summary report
+* Sends Telegram alerts for large vendor payments
+* Provides unit tests for event building, deduplication, writer, reporting, alerting, and consumer validation
+* Uses Ruff and pytest in GitHub Actions CI
+
+---
+
+## Project Structure
+
+```text
+vendor-payments-streaming-pipeline/
+│
+├── common/
+│   ├── alert_notifier.py
+│   ├── config.py
+│   ├── dedup.py
+│   ├── event_builder.py
+│   ├── large_payment_alert.py
+│   ├── logging_config.py
+│   ├── reporting.py
+│   └── writer.py
+│
+├── producer/
+│   └── producer.py
+│
+├── consumer/
+│   └── consumer.py
+│
+├── scripts/
+│   ├── create_topic.ps1
+│   └── prepare_stream_sample.py
+│
+├── assets/
+│   └── vendor-payments-streaming/
+│
+├── data/
+│   └── input/
+│
+├── output/
+│   ├── staging/
+│   └── reports/
+│
+├── tests/
+│
+├── docker-compose.yml
+├── run_producer.py
+├── run_consumer.py
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Main Components
+
+### 1. Streaming Sample Preparation
+
+```text
+scripts/prepare_stream_sample.py
+```
+
+This script reads the silver stream sample from Project 1 and prepares a streaming input file for Project 3.
+
+Input source:
+
+```text
+E:\dev\vendor-payments-etl-analytics\data\processed\silver\vendor_payments_silver_stream_sample_100k.csv
+```
+
+Generated streaming input:
+
+```text
+data/input/vendor_payments_stream_sample.csv
+```
+
+The sample contains 100,000 cleaned Vendor Payments records.
+
+---
+
+### 2. Event Builder
+
+```text
+common/event_builder.py
+```
+
+The event builder converts each Vendor Payments row into a structured Kafka event.
+
+Each event contains:
+
+```text
+event_id
+event_type
+event_timestamp
+source_system
+source_row_hash
+business_composite_key
+fiscal_year
+supplier_name
+department
+vouchers_paid
+payment_amount
+payload
+```
+
+The full row is preserved inside the payload so downstream systems can still access the original event data.
+
+---
+
+### 3. Kafka Producer
+
+```text
+producer/producer.py
+```
+
+The producer reads the prepared streaming sample, builds Vendor Payments events, intentionally injects duplicate events, and publishes all events to Kafka.
+
+Duplicate events reuse the same `event_id` to simulate real retry/replay scenarios.
+
+Kafka topic:
+
+```text
+vendor_payments_events
+```
+
+Final run:
+
+```text
+100,000 base events
++ 5,000 duplicate/replay events
+= 105,000 produced events
+```
+
+---
+
+### 4. Kafka Consumer
+
+```text
+consumer/consumer.py
+```
+
+The consumer reads events from Kafka, validates required event fields, applies Redis deduplication, writes accepted events to staging, rejects duplicate events, sends Telegram alerts for large payments, and generates summary metrics.
+
+The consumer uses manual offset commit after processing.
+
+This supports an at-least-once processing design where data loss is avoided first, and duplicates are handled safely by Redis.
+
+---
+
+### 5. Redis First-Level Deduplication
+
+```text
+common/dedup.py
+```
+
+Redis is used as a first-level deduplication store.
+
+Deduplication key format:
+
+```text
+event:{event_id}
+```
+
+If the event ID already exists in Redis, the event is rejected as a duplicate.
+
+If the event ID does not exist, the event is accepted and marked as processed.
+
+Final result:
+
+```text
+Accepted events: 100,000
+Rejected duplicates: 5,000
+```
+
+---
+
+### 6. Staging Writer
+
+```text
+common/writer.py
+```
+
+Accepted events are written to:
+
+```text
+output/staging/vendor_payments_streaming_staging.jsonl
+```
+
+Each accepted event includes:
+
+```text
+dedup_status
+ingested_at
+```
+
+The staging output is designed for downstream validation and secondary deduplication by the Airflow orchestration layer.
+
+---
+
+### 7. Streaming Summary Report
+
+```text
+common/reporting.py
+```
+
+The streaming summary report is written to:
+
+```text
+output/reports/streaming_summary_report.json
+```
+
+The report includes:
+
+```text
+base_events
+produced_events
+accepted_events
+rejected_duplicates
+duplicate_rate
+dedup_strategy
+staging_output
+principle
+large_payment_alerts_sent
+```
+
+Example report:
+
+```json
+{
+  "topic": "vendor_payments_events",
+  "base_events": 100000,
+  "produced_events": 105000,
+  "accepted_events": 100000,
+  "rejected_duplicates": 5000,
+  "duplicate_rate": 0.0476,
+  "dedup_strategy": "redis_event_id_first_level_dedup",
+  "staging_output": "output\\staging\\vendor_payments_streaming_staging.jsonl",
+  "principle": "Prevent data loss first, then handle duplicates safely.",
+  "large_payment_alerts_sent": 5
+}
+```
+
+---
+
+### 8. Telegram Large Payment Alert
+
+```text
+common/large_payment_alert.py
+common/alert_notifier.py
+```
+
+Large payment alerts are triggered when:
+
+```text
+vouchers_paid >= 1,000,000
+```
+
+Example alert fields:
+
+```text
+event_id
+supplier
+department
+fiscal_year
+vouchers_paid
+source
+```
+
+Alerting is controlled by environment variables:
+
+```env
+ENABLE_TELEGRAM_ALERTS=false
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT=5
+```
+
+---
+
+## Local Setup
+
+Start Kafka, Zookeeper, and Redis:
+
+```bash
+docker compose up -d
+```
+
+Check running services and Kafka topics:
+
+```bash
+docker compose ps
+docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+Prepare the streaming sample from Project 1 silver output:
+
+```bash
+python scripts/prepare_stream_sample.py
+```
+
+Run the producer:
+
+```bash
+python run_producer.py
+```
+
+Clear Redis and previous outputs before a clean consumer run:
+
+```bash
+docker exec redis redis-cli FLUSHDB
+rm -f output/staging/vendor_payments_streaming_staging.jsonl
+rm -f output/reports/streaming_summary_report.json
+```
+
+On Windows PowerShell:
+
+```powershell
+docker exec redis redis-cli FLUSHDB
+Remove-Item output\staging\vendor_payments_streaming_staging.jsonl -ErrorAction SilentlyContinue
+Remove-Item output\reports\streaming_summary_report.json -ErrorAction SilentlyContinue
+```
+
+Run the consumer:
+
+```bash
+python run_consumer.py
+```
+
+---
+
+## Environment Variables
+
+Example `.env` configuration for local development:
+
+```env
+KAFKA_BROKER=localhost:9092
+KAFKA_SECURITY_PROTOCOL=PLAINTEXT
+KAFKA_SASL_MECHANISM=
+KAFKA_USERNAME=
+KAFKA_PASSWORD=
+
+TOPIC_VENDOR_PAYMENTS=vendor_payments_events
+TOPIC_DUPLICATE_VENDOR_PAYMENTS=vendor_payments_duplicate_events
+TOPIC_VENDOR_PAYMENT_ALERTS=vendor_payment_alerts
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+DEDUP_TTL_SECONDS=86400
+
+PROJECT1_ROOT=E:\dev\vendor-payments-etl-analytics
+PROJECT1_SILVER_SAMPLE_FILE=E:\dev\vendor-payments-etl-analytics\data\processed\silver\vendor_payments_silver_stream_sample_100k.csv
+
+STREAM_SAMPLE_FILE=data\input\vendor_payments_stream_sample.csv
+STAGING_FILE=output\staging\vendor_payments_streaming_staging.jsonl
+STREAMING_SUMMARY_REPORT_FILE=output\reports\streaming_summary_report.json
+
+STREAM_SAMPLE_SIZE=100000
+DUPLICATE_RATE=0.05
+RANDOM_SEED=42
+
+LARGE_PAYMENT_THRESHOLD=1000000
+TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT=5
+
+LOG_LEVEL=INFO
+KAFKA_LOG_LEVEL=WARNING
+REDIS_LOG_LEVEL=WARNING
+
+ENABLE_TELEGRAM_ALERTS=false
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+```
+
+Do not commit real Telegram tokens or chat IDs.
+
+---
+
+## Testing
+
+Run Ruff:
+
+```bash
+python -m ruff check .
+```
+
+Run tests:
+
+```bash
+python -m pytest -v
+```
+
+Current test coverage includes:
+
+* project structure validation
+* Vendor Payments event builder
+* Redis deduplication helper
+* staging writer
+* streaming summary reporting
+* consumer event validation
+* large payment alert logic
+
+Current result:
+
+```text
+16 passed
+```
+
+---
+
+## CI
+
+GitHub Actions validates:
+
+```text
+Ruff lint
+pytest
+Docker Compose config
+```
+
+The CI workflow ensures that the streaming project remains testable and maintainable without requiring Kafka, Redis, or Telegram to run inside the unit test suite.
+
+---
+
+## Current Status
+
+Completed:
+
+```text
+Vendor Payments config refactor
+100,000-row streaming sample preparation
+Vendor Payments event builder
+Kafka producer with duplicate injection
+Redis first-level deduplication helper
+Kafka consumer with Redis deduplication
+Staging JSONL writer
+Streaming summary report
+Telegram large payment alerting
+Evidence screenshots
+Unit tests
+Ruff validation
+GitHub Actions CI
+```
+
+Final run completed successfully:
+
+```text
+Produced events: 105,000
+Accepted events: 100,000
+Rejected duplicates: 5,000
+Failed events: 0
+Large payment alerts sent: 5
+```
+
+---
+
+## What This Project Demonstrates
+
+This project demonstrates practical streaming data engineering patterns:
+
+* Kafka producer and consumer design
+* Event-driven ingestion
+* At-least-once processing mindset
+* Duplicate injection for reliability testing
+* Redis first-level deduplication
+* Idempotent event processing pattern
+* Staging output for downstream batch validation
+* Telegram alerting for business-rule monitoring
+* Summary metrics for observability
+* Unit testing and CI validation
+* Integration with a broader batch + orchestration + cloud data platform
+
+This is not only a Kafka demo. It is a streaming ingestion layer designed to integrate with a broader Vendor Payments data platform.
