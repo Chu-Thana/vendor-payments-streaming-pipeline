@@ -43,11 +43,13 @@ def build_vendor_payment_event(row: pd.Series) -> dict[str, Any]:
             row.get("business_composite_key")
         ),
         "fiscal_year": _to_json_safe_value(row.get("fiscal_year")),
-        "vendor_name": _to_json_safe_value(row.get("vendor_name")),
-        "vouchers_paid": _to_json_safe_value(row.get("vouchers_paid")),
-        "department_name": _to_json_safe_value(row.get("department_name")),
+        "supplier_name": _to_json_safe_value(row.get("supplier_name")),
+        "vendor_name": _to_json_safe_value(row.get("supplier_name")),
+        "department": _to_json_safe_value(row.get("department")),
+        "department_name": _to_json_safe_value(row.get("department")),
         "payment_status": _to_json_safe_value(row.get("payment_status")),
-        "payment_amount": _to_json_safe_value(row.get("payment_amount")),
+        "vouchers_paid": _to_json_safe_value(row.get("vouchers_paid")),
+        "payment_amount": _to_json_safe_value(row.get("vouchers_paid")),
 
         # Keep the full original row as payload so downstream consumers do not lose source details.
         "payload": {
