@@ -54,7 +54,7 @@ class RedisDeduplicator:
         )
 
     def should_accept(self, event: dict[str, Any]) -> bool:
-        """Return True for new events and False for duplicate events."""
+        """Legacy helper. Do not use when durable staging write must happen before Redis mark."""
         event_id = str(event["event_id"])
 
         if self.is_duplicate(event_id):

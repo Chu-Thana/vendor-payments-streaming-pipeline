@@ -148,36 +148,9 @@ def consume_vendor_payment_events(
             try:
                 validate_event(event)
 
-                if deduplicator.should_accept(event):
-                    write_event_to_staging(event)
-                    metrics["accepted_events"] += 1
+                event_id = str(event["event_id"])
 
-                    if (
-                            is_large_payment_event(event)
-                            and metrics["large_payment_alerts_sent"] < TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT
-                    ):
-                        alert_message = build_large_payment_alert_message(event)
-                        alert_sent = send_telegram_alert(alert_message)
-
-                        if alert_sent:
-                            metrics["large_payment_alerts_sent"] += 1
-
-                        logger.warning(
-                            "large payment alert evaluated | consumer=%s event_id=%s alert_sent=%s",
-                            consumer_name,
-                            event["event_id"],
-                            alert_sent,
-                        )
-
-                    logger.info(
-                        "accepted event | consumer=%s topic=%s partition=%s offset=%s event_id=%s",
-                        consumer_name,
-                        message.topic,
-                        message.partition,
-                        message.offset,
-                        event["event_id"],
-                    )
-                else:
+                if deduplicator.is_duplicate(event_id):
                     metrics["rejected_duplicates"] += 1
 
                     logger.warning(
@@ -188,6 +161,40 @@ def consume_vendor_payment_events(
                         message.offset,
                         event["event_id"],
                     )
+
+                    consumer.commit()
+                    continue
+
+                write_event_to_staging(event)
+                metrics["accepted_events"] += 1
+
+                if (
+                        is_large_payment_event(event)
+                        and metrics["large_payment_alerts_sent"] < TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT
+                ):
+                    alert_message = build_large_payment_alert_message(event)
+                    alert_sent = send_telegram_alert(alert_message)
+
+                    if alert_sent:
+                        metrics["large_payment_alerts_sent"] += 1
+
+                    logger.warning(
+                        "large payment alert evaluated | consumer=%s event_id=%s alert_sent=%s",
+                        consumer_name,
+                        event["event_id"],
+                        alert_sent,
+                    )
+
+                deduplicator.mark_processed(event)
+
+                logger.info(
+                    "accepted event | consumer=%s topic=%s partition=%s offset=%s event_id=%s",
+                    consumer_name,
+                    message.topic,
+                    message.partition,
+                    message.offset,
+                    event["event_id"],
+                )
 
                 consumer.commit()
 
@@ -203,7 +210,6 @@ def consume_vendor_payment_events(
                     str(error),
                 )
 
-                consumer.commit()
                 continue
 
     finally:
