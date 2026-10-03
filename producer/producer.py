@@ -259,6 +259,7 @@ def produce_events(
         if pending_deliveries:
             resolve_pending_deliveries()
 
+        # Send any buffered messages before closing the producer.
         producer.flush()
 
     finally:
@@ -308,9 +309,7 @@ def main(
         window_complete_event = (
             build_stream_window_complete_event(
                 window_id=window_id,
-                expected_event_count=delivery_metrics[
-                    "events_acknowledged"
-                ],
+                expected_event_count=len(base_events),
             )
         )
 
@@ -361,6 +360,7 @@ def main(
         topic=TOPIC_VENDOR_PAYMENTS,
     )
 
+    # Save the producer execution report for later review.
     write_producer_execution_report(report)
 
     logger.info(
@@ -407,3 +407,10 @@ def main(
         report["validation"]["status"],
     )
 
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise ValueError(
+            "Usage: python <producer_script.py> <source_file>"
+        )
+
+    main(Path(sys.argv[1]))

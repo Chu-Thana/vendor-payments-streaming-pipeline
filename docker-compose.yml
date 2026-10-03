@@ -2,14 +2,26 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
+
+    networks:
+      - vendor-payments-network
+
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+
     ports:
       - "2181:2181"
+
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
+    networks:
+      - vendor-payments-network
     depends_on:
       - zookeeper
     ports:
@@ -17,19 +29,31 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
     volumes:
       - kafka_data:/var/lib/kafka/data
+
 
   redis:
     image: redis:7
     container_name: redis
+    networks:
+      - vendor-payments-network
     ports:
       - "6379:6379"
-  
+
+
 volumes:
   kafka_data:
+  zookeeper_data:
+  zookeeper_log:
+
+
+networks:
+  vendor-payments-network:
+    external: true

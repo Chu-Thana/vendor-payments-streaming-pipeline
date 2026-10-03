@@ -48,6 +48,60 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def build_window_complete_metadata_file(
+    window_id: str,
+) -> Path:
+    return (
+        STAGING_DIR
+        / window_id
+        / "_WINDOW_COMPLETE.json"
+    )
+
+
+def persist_window_expected_count(
+    window_id: str,
+    expected_event_count: int,
+) -> None:
+    metadata_file = (
+        build_window_complete_metadata_file(window_id)
+    )
+
+    metadata_file.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    payload = {
+        "window_id": window_id,
+        "expected_event_count": expected_event_count,
+    }
+
+    metadata_file.write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+
+
+def finalize_known_windows(
+    window_expected_counts: dict[str, int],
+) -> None:
+    for window_dir in STAGING_DIR.glob(
+        "stream_window_*"
+    ):
+        metadata_file = (
+            window_dir
+            / "_WINDOW_COMPLETE.json"
+        )
+
+        if not metadata_file.exists():
+            continue
+
+        try_finalize_window(
+            window_id=window_dir.name,
+            window_expected_counts=window_expected_counts,
+        )
+
+
 def build_staging_file(
     window_id: str,
 ) -> Path:
@@ -79,30 +133,49 @@ def build_success_marker(
 
 def try_finalize_window(
     window_id: str,
-    window_processed_counts: dict[str, int],
     window_expected_counts: dict[str, int],
 ) -> None:
-    expected_count = (
-        window_expected_counts.get(
+    expected_count = window_expected_counts.get(
+        window_id
+    )
+
+    if expected_count is None:
+        metadata_file = (
+            build_window_complete_metadata_file(
+                window_id
+            )
+        )
+
+        if not metadata_file.exists():
+            return
+
+        metadata = json.loads(
+            metadata_file.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        expected_count = int(
+            metadata["expected_event_count"]
+        )
+
+        window_expected_counts[
+            window_id
+        ] = expected_count
+
+    staged_count = (
+        count_unique_staged_events(
             window_id
         )
     )
 
-    processed_count = (
-        window_processed_counts.get(
-            window_id,
-            0,
-        )
-    )
-
-    if (
-        expected_count is None
-        or processed_count != expected_count
-    ):
+    if staged_count != expected_count:
         return
 
-    success_marker = build_success_marker(
-        window_id
+    success_marker = (
+        build_success_marker(
+            window_id
+        )
     )
 
     success_marker.parent.mkdir(
@@ -111,6 +184,42 @@ def try_finalize_window(
     )
 
     success_marker.touch()
+
+
+def count_unique_staged_events(
+    window_id: str,
+) -> int:
+    """Count unique event IDs durably written for one window."""
+
+    staging_file = build_staging_file(
+        window_id
+    )
+
+    if not staging_file.exists():
+        return 0
+
+    event_ids: set[str] = set()
+
+    with staging_file.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        for line in file:
+            if not line.strip():
+                continue
+
+            event = json.loads(line)
+
+            event_id = event.get(
+                "event_id"
+            )
+
+            if event_id:
+                event_ids.add(
+                    str(event_id)
+                )
+
+    return len(event_ids)
 
 
 def build_kafka_consumer(consumer_group: str) -> KafkaConsumer:
@@ -201,7 +310,6 @@ def consume_vendor_payment_events(
 
     staging_files: set[Path] = set()
 
-    window_processed_counts: dict[str, int] = {}
     window_expected_counts: dict[str, int] = {}
 
     metrics = {
@@ -247,42 +355,29 @@ def consume_vendor_payment_events(
                         window_id
                     ] = expected_event_count
 
+                    persist_window_expected_count(
+                        window_id=window_id,
+                        expected_event_count=expected_event_count,
+                    )
+
                     try_finalize_window(
                         window_id=window_id,
-                        window_processed_counts=window_processed_counts,
                         window_expected_counts=window_expected_counts,
                     )
 
                     consumer.commit()
                     continue
 
-                # 2) From here down = normal business event
+                # From here down = normal business event
                 event_id = str(event["event_id"])
 
                 staging_file = build_staging_file(
                     window_id
                 )
 
-                # 3) Duplicate handling
+                # Duplicate handling
                 if deduplicator.is_duplicate(event_id):
                     metrics["rejected_duplicates"] += 1
-
-                    window_processed_counts[
-                        window_id
-                    ] = (
-                            window_processed_counts.get(
-                                window_id,
-                                0,
-                            )
-                            + 1
-                    )
-
-                    try_finalize_window(
-                        window_id=window_id,
-                        window_processed_counts=window_processed_counts,
-                        window_expected_counts=window_expected_counts,
-                    )
-
                     consumer.commit()
                     continue
 
@@ -313,8 +408,6 @@ def consume_vendor_payment_events(
                 staging_files.add(staging_file)
                 metrics["accepted_events"] += 1
 
-
-
                 if (
                     is_large_payment_event(event)
                     and metrics["large_payment_alerts_sent"]
@@ -343,42 +436,6 @@ def consume_vendor_payment_events(
 
                 deduplicator.mark_processed(event)
 
-                window_processed_counts[
-                    window_id
-                ] = (
-                        window_processed_counts.get(
-                            window_id,
-                            0,
-                        )
-                        + 1
-                )
-
-                expected_count = (
-                    window_expected_counts.get(
-                        window_id
-                    )
-                )
-
-                if (
-                        expected_count is not None
-                        and window_processed_counts[
-                    window_id
-                ]
-                        == expected_count
-                ):
-                    success_marker = (
-                        build_success_marker(
-                            window_id
-                        )
-                    )
-
-                    success_marker.parent.mkdir(
-                        parents=True,
-                        exist_ok=True,
-                    )
-
-                    success_marker.touch()
-
                 logger.info(
                     (
                         "accepted event | consumer=%s topic=%s "
@@ -395,7 +452,6 @@ def consume_vendor_payment_events(
 
             except Exception as error:
                 metrics["failed_events"] += 1
-
                 logger.exception(
                     (
                         "event processing failed | consumer=%s "
@@ -407,8 +463,11 @@ def consume_vendor_payment_events(
                     getattr(message, "offset", None),
                     str(error),
                 )
+                raise
 
-                break
+        finalize_known_windows(
+            window_expected_counts
+        )
 
     finally:
         consumer.close()
