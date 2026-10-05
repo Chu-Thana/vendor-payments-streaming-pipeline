@@ -407,3 +407,10 @@ def main(
         report["validation"]["status"],
     )
 
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit(
+            "Usage: python producer.py <source_file>"
+        )
+
+    main(Path(sys.argv[1]))
