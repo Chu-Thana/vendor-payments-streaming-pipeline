@@ -9,15 +9,15 @@
 ![Code Quality](https://img.shields.io/badge/Code%20Quality-Ruff-8A2BE2)
 ![CI](https://github.com/Chu-Thana/vendor-payments-streaming-pipeline/actions/workflows/ci.yml/badge.svg)
 
-Production-style Kafka streaming ingestion pipeline for converting cleaned Vendor Payments records into bounded event windows, simulating retry and replay duplicates, applying Redis-based deduplication, writing accepted events to per-window staging, and publishing explicit completion markers for downstream orchestration.
+Production-style Kafka streaming ingestion pipeline for converting trusted Vendor Payments Silver records into bounded event windows, injecting controlled duplicates, applying Redis-based deduplication, writing accepted events to per-window staging, and publishing explicit completion markers for downstream orchestration.
 
-This repository is the streaming ingestion layer of the **Vendor Payments Data Engineering Portfolio**.
+This repository is the streaming-ingestion layer of the Vendor Payments Data Platform.
 
 ---
 
 ## 📌 Project Summary
 
-The current version moves away from one fixed streaming staging file and uses three deterministic bounded windows:
+The pipeline processes three deterministic bounded windows:
 
 ```text
 stream_window_001
@@ -25,35 +25,46 @@ stream_window_002
 stream_window_003
 ```
 
-Each window contains 100,000 source records.
+Each window contains **100,000 source records**.
 
-During a clean validation run, the producer adds 5,000 deterministic retry/replay duplicates, giving a 105,000-message Kafka workload per window.
+A clean validation workload uses:
 
-The consumer validates events, rejects duplicate `event_id` values with Redis, writes 100,000 accepted events to per-window staging, and creates `_SUCCESS` when the window is complete.
+```text
+100,000 base events
++ 5,000 injected duplicates
+= 105,000 data events
+```
+
+The producer also publishes a separate window-completion control event. The consumer rejects duplicate `event_id` values with Redis, writes **100,000 unique accepted events** to per-window staging, and creates `_SUCCESS` when ingestion is complete.
 
 Key capabilities:
 
-* Trusted Silver data as the streaming source
-* Three bounded input windows
-* Structured Kafka events with `window_id`
-* Deterministic retry/replay duplicate injection
-* Kafka producer delivery acknowledgement tracking
-* 3-partition Kafka topic
-* Redis TTL deduplication
-* Manual Kafka offset commits
-* Per-window JSONL staging
-* Explicit `_SUCCESS` completion markers
-* Producer and consumer runtime metadata
-* Validation of event and staging balances
-* Docker Compose local infrastructure
-* 51 automated tests
-* Ruff linting
-* GitHub Actions CI
+- Trusted Silver data as the streaming source
+- Three deterministic bounded windows
+- Structured Kafka events with `window_id`
+- Controlled duplicate injection
+- Producer acknowledgement tracking
+- 3-partition Kafka topic
+- Redis TTL deduplication
+- Manual Kafka offset commits
+- Per-window JSONL staging
+- Explicit `_SUCCESS` markers
+- `_PROCESSED` downstream lifecycle marker
+- Producer and Consumer runtime metadata
+- Event-balance and staging-count validation
+- Docker Compose infrastructure
+- Separate Kafka host/internal listeners
+- Airflow-driven Producer / Consumer execution
+- Automated next-window progression
+- 51 automated tests
+- Ruff linting
+- GitHub Actions CI
 
 The main reliability principle is:
 
 ```text
-Prevent data loss first, then handle duplicates safely.
+Prevent data loss first,
+then handle duplicates safely.
 ```
 
 ---
@@ -63,93 +74,110 @@ Prevent data loss first, then handle duplicates safely.
 ![Vendor Payments Streaming Pipeline Architecture](assets/vendor-payments-streaming/00_streaming_architecture_v2.png)
 
 ```text
-Vendor Payments Silver Data
-→ Prepare Bounded Streaming Windows
-→ Kafka Producer
-→ Kafka Topic
-→ Kafka Consumer
-→ Redis Deduplication
-→ Per-Window Staging
-→ Window Completion Check
-→ _SUCCESS
-→ Airflow Downstream Processing
+Trusted Silver Data
+        ↓
+Prepare Bounded Windows
+        ↓
+Kafka Producer
+        ↓
+vendor_payments_events
+        ↓
+Kafka Consumer
+        ↓
+Redis Deduplication
+        ↓
+Per-Window Staging
+        ↓
+Window Completion Check
+        ↓
+_SUCCESS
+        ↓
+Airflow Downstream Processing
+        ↓
+_PROCESSED
 ```
 
 ### Layer Responsibilities
 
-* **Streaming Window Preparation** — Builds deterministic bounded inputs from trusted Silver data.
-* **Kafka Producer** — Reads one window, builds events, injects retry/replay duplicates, attaches `window_id`, tracks acknowledgements, and publishes a completion control event.
-* **Kafka Topic** — Routes `vendor_payments_events` across 3 partitions.
-* **Kafka Consumer** — Validates events, performs Redis deduplication, writes accepted events by window, tracks progress, and commits offsets manually.
-* **Window Completion Check** — Verifies that the expected number of events for the current window has been processed.
-* **`_SUCCESS` Marker** — Signals that consumer ingestion for a window is complete.
-* **Airflow Downstream Processing** — Discovers `_SUCCESS` windows and later creates `_PROCESSED` after downstream processing completes.
+- **Streaming Window Preparation** — Builds deterministic 100K-row inputs from trusted Silver data.
+- **Kafka Producer** — Reads one window, builds events, injects controlled duplicates, attaches `window_id`, tracks acknowledgements, and publishes a completion control event.
+- **Kafka Topic** — Routes `vendor_payments_events` across three partitions.
+- **Kafka Consumer** — Validates events, performs Redis deduplication, writes accepted events by window, tracks progress, and commits offsets manually.
+- **Window Completion Check** — Verifies the expected accepted-event count before `_SUCCESS`.
+- **`_SUCCESS`** — Signals that ingestion for a bounded window is complete.
+- **Airflow Downstream Processing** — Processes completed windows through transformation, S3, Redshift, validation, pointer publication, and `_PROCESSED`.
+- **`_PROCESSED`** — Signals downstream orchestration for that window is complete.
 
 ---
 
-## 📊 Project Metrics
+## 📊 Validated Results
 
-Latest clean local validation run for `stream_window_003`:
-
-| Metric | Value |
+| Metric | Result |
 | --- | ---: |
 | Bounded windows prepared | 3 |
 | Source records per window | 100,000 |
-| Base events per window | 100,000 |
+| Base events per validation run | 100,000 |
 | Duplicate events injected | 5,000 |
-| Kafka events attempted | 105,000 |
-| Kafka events acknowledged | 105,000 |
-| Kafka events consumed | 105,000 |
+| Data events attempted | 105,000 |
+| Data events acknowledged | 105,000 |
 | Unique events accepted | 100,000 |
 | Redis duplicates rejected | 5,000 |
 | Producer failed events | 0 |
 | Consumer failed events | 0 |
 | Staging records produced | 100,000 |
-| Observed duplicate rate | 4.76% |
-| Producer runtime | 361.053 seconds |
-| Consumer runtime | 339.393 seconds |
 | Kafka partitions | 3 |
 | Replication factor | 1 |
-| Automated tests passed | 51 |
+| Automated tests | 51 passed |
 | Ruff linting | PASS |
 | Producer validation | PASS |
-| Consumer validation | PASS |
+| Consumer execution | success |
 
-These figures are from a **local simulated workload** for portfolio validation, not production traffic or a production benchmark.
+These metrics are from a local simulated workload for portfolio validation, not production traffic or a production throughput benchmark.
 
 ---
 
 ## 🖥️ Streaming Infrastructure
 
-Kafka, Redis, and Zookeeper run locally through Docker Compose.
+Kafka, Redis, and ZooKeeper run locally through Docker Compose.
 
 ```powershell
 docker compose up -d
 docker compose ps
-docker compose exec redis redis-cli ping
 ```
 
-Expected Redis result:
+Expected services:
 
 ```text
-PONG
+kafka
+redis
+zookeeper
 ```
 
 ![Streaming Infrastructure](assets/vendor-payments-streaming/01_streaming_infrastructure.png)
 
+### Kafka Listener Design
+
+The final local setup exposes separate host and container listeners:
+
+```text
+Windows host / local Python
+→ localhost:9092
+
+Airflow / Docker network
+→ kafka:29092
+```
+
+This lets local Python processes and Docker-based Airflow use the same broker from different network contexts.
+
 ---
 
 ## 📨 Kafka Topic
-
-Topic configuration:
 
 ```text
 Topic: vendor_payments_events
 Partition count: 3
 Replication factor: 1
 ```
-
-The current validation uses one consumer process, which can be assigned all three partitions.
 
 ```text
 Partition 0 ─┐
@@ -163,29 +191,29 @@ Partition 2 ─┘
 
 ## 🧪 Automated Testing and Code Quality
 
-The project currently passes:
-
-```text
-51 tests passed
-All checks passed!
-```
-
-Run locally:
+Run:
 
 ```powershell
-python -m pytest -v
+python -m pytest -q
 python -m ruff check .
 ```
 
-The tests cover consumer validation, execution metrics, window-aware staging, `_SUCCESS` creation, Redis deduplication, event construction, duplicate injection, producer acknowledgements, execution metadata, event-balance validation, staging-count validation, reset behavior, project structure, and JSONL output.
+Latest verified result:
+
+```text
+51 passed
+All checks passed!
+```
 
 ![Automated Testing and Ruff Evidence](assets/vendor-payments-streaming/03_streaming_tests_and_lint.png)
+
+The tests cover event construction, duplicate injection, acknowledgement metrics, consumer validation, Redis deduplication, per-window staging, `_SUCCESS` creation, event-balance validation, staging-count validation, reset behavior, project structure, and JSONL output.
 
 ---
 
 ## 🪟 Bounded Streaming Windows
 
-Input preparation creates three deterministic 100,000-row files:
+Input preparation creates:
 
 ```text
 data/input/stream_windows/
@@ -194,30 +222,36 @@ data/input/stream_windows/
 └── vendor_payments_stream_window_003.csv
 ```
 
-This design gives downstream systems explicit, independently trackable work units instead of relying on one fixed staging file.
+Each file contains **100,000 source rows**.
 
 ![Bounded Streaming Windows](assets/vendor-payments-streaming/04_streaming_windows.png)
+
+The bounded-window lifecycle gives downstream systems explicit, independently trackable work units:
+
+```text
+001 → complete → process
+002 → complete → process
+003 → complete → process
+```
 
 ---
 
 ## 📤 Kafka Producer
-
-The producer reads one bounded input window and builds structured Vendor Payments events.
 
 Processing flow:
 
 ```text
 Read one input window
 → Build 100,000 base events
-→ Inject 5,000 deterministic duplicates
+→ Inject 5,000 controlled duplicates
 → Attach window_id
-→ Publish 105,000 events
+→ Publish 105,000 data events
 → Track delivery acknowledgements
-→ Publish stream_window_complete event
-→ Generate producer execution metadata
+→ Publish window-completion control event
+→ Generate execution metadata
 ```
 
-Message key priority:
+Message-key priority:
 
 ```text
 business_composite_key
@@ -240,11 +274,11 @@ Validation status: PASS
 
 ![Producer Execution Evidence](assets/vendor-payments-streaming/05_producer_execution.png)
 
+The producer is directly executable from the command line and can also be invoked by Airflow as part of the automated window lifecycle.
+
 ---
 
 ## 📥 Kafka Consumer
-
-The consumer validates each message, applies Redis event-ID deduplication, writes accepted events into the current window staging directory, and commits Kafka offsets manually.
 
 Processing flow:
 
@@ -255,7 +289,7 @@ Poll Kafka
 → Check event_id in Redis
 → Reject duplicate or accept event
 → Write accepted event to per-window staging
-→ Track window progress
+→ Track progress
 → Commit Kafka offset
 → Evaluate completion
 → Create _SUCCESS
@@ -270,183 +304,174 @@ enable_auto_commit = False
 Latest clean execution:
 
 ```text
-Consumed events: 105,000
+Consumed data events: 105,000
 Accepted events: 100,000
 Rejected duplicates: 5,000
 Failed events: 0
 Execution status: success
-Validation status: PASS
 ```
 
 ![Consumer Execution Evidence](assets/vendor-payments-streaming/06_consumer_execution.png)
 
 ---
 
-## ♻️ Deduplication Strategy
+## ♻️ Redis Deduplication Strategy
 
-Redis provides the first-level streaming deduplication layer.
-
-Key format:
+Redis is the first-level deduplication boundary.
 
 ```text
 event:{event_id}
 ```
 
-Processing behavior:
-
 ```text
-New event_id
-→ write accepted event
-→ store event_id in Redis with TTL
-→ commit Kafka offset
+event_id not found
+→ accept
+→ append to staging
+→ set Redis key with TTL
 
-Existing event_id
+event_id already exists
 → reject as duplicate
-→ count duplicate
-→ commit Kafka offset
+→ increment duplicate count
+→ do not append to staging
 ```
 
-Latest clean result:
+The project intentionally describes its delivery model as:
 
 ```text
-Accepted unique events: 100,000
-Rejected duplicate events: 5,000
-Observed duplicate rate: 4.76%
+At-least-once delivery
+→ duplicate-safe application processing
 ```
 
-The downstream Airflow pipeline performs separate downstream validation and processing after the streaming window is complete.
+It does not claim end-to-end exactly-once semantics.
 
 ---
 
-## 🗃️ Window Completion and Staging Output
+## ✅ Window Completion
 
-Accepted events are stored by window:
-
-```text
-output/staging/
-├── stream_window_001/
-│   ├── events.jsonl
-│   ├── _SUCCESS
-│   └── _PROCESSED
-├── stream_window_002/
-│   ├── events.jsonl
-│   ├── _SUCCESS
-│   └── _PROCESSED
-└── stream_window_003/
-    ├── events.jsonl
-    └── _SUCCESS
-```
-
-Marker responsibilities are intentionally separate:
+A completed ingestion window contains:
 
 ```text
-_SUCCESS
-= Kafka consumer ingestion is complete
-
-_PROCESSED
-= downstream Airflow processing is complete
+output/staging/<window_id>/
+├── events.jsonl
+└── _SUCCESS
 ```
 
-This prevents Airflow from consuming an incomplete window and makes the boundary between ingestion and downstream processing explicit.
+Final local validation for `stream_window_001`:
+
+```text
+events.jsonl records: 100,000
+_SUCCESS: present
+```
 
 ![Window Completion Evidence](assets/vendor-payments-streaming/07_window_completion.png)
 
+Lifecycle markers have distinct meanings:
+
+```text
+_SUCCESS
+= streaming ingestion complete
+
+_PROCESSED
+= downstream Airflow processing complete
+```
+
 ---
 
-## ✅ Runtime Validation
+## ⚙️ Airflow Window Automation
 
-### Producer
-
-```text
-Source row count
-=
-Base event count
-```
-
-and:
+The final integration removes the remaining manual handoff between bounded windows.
 
 ```text
-Events attempted
-=
-Events acknowledged
-+ Failed events
+discover next unprocessed window
+→ run Kafka Producer
+→ run Kafka Consumer
+→ verify _SUCCESS
+→ extract staging events
+→ transform curated data
+→ build window summary
+→ upload curated output to S3
+→ load Redshift
+→ create analytics views
+→ validate Redshift analytics
+→ Athena ↔ Redshift cross-layer validation
+→ publish latest.json
+→ create _PROCESSED
+→ check next window
+→ trigger next run or complete
 ```
 
-Latest result:
+This gives the Streaming DAG a retry-safe control loop:
 
 ```text
-100,000 = 100,000
-105,000 = 105,000 + 0
-Validation: PASS
+stream_window_001
+→ stream_window_002
+→ stream_window_003
+→ complete
 ```
 
-### Consumer
+![Streaming Window Automation](assets/vendor-payments-streaming/09_streaming_window_automation.png)
+
+Repository responsibility remains separated:
 
 ```text
-Events consumed
-=
-Accepted events
-+ Rejected duplicates
-+ Failed events
+Streaming repository
+→ Producer / Consumer implementation
+→ Redis deduplication
+→ per-window staging
+→ _SUCCESS semantics
+
+Airflow repository
+→ execution order
+→ next-window progression
+→ cloud processing
+→ _PROCESSED lifecycle
 ```
 
-Latest result:
+---
+
+## 🔎 Downstream Cloud Validation
+
+After `_SUCCESS`, Airflow coordinates downstream Cloud processing.
 
 ```text
-105,000
-=
-100,000
-+ 5,000
-+ 0
+Completed staging window
+→ curated output
+→ Amazon S3
+→ Redshift landing
+→ analytics views
+→ Athena ↔ Redshift validation
+→ latest.json
+→ _PROCESSED
 ```
 
-Staging validation:
-
-```text
-Accepted events
-=
-Current window staging record count
-```
-
-Latest result:
-
-```text
-100,000 = 100,000
-Validation: PASS
-```
-
-Producer and consumer also write machine-readable execution reports:
-
-```text
-output/reports/producer_execution_summary.json
-output/reports/consumer_execution_summary.json
-```
+Only after downstream processing and validation completes is the window marked `_PROCESSED`.
 
 ---
 
 ## ⚙️ Continuous Integration
 
-GitHub Actions runs validation on pushes and pull requests.
+GitHub Actions validates the repository on configured pushes and pull requests.
 
-The current `main` branch CI workflow completes successfully.
+The current screenshot can remain in place until the final multi-repository push, then be overwritten with the final CI run.
 
 ![Streaming CI Success](assets/vendor-payments-streaming/08_streaming_ci_success.png)
 
 ---
 
-## 🚨 Optional Telegram Alerting
+## 📸 Final Evidence Set
 
-The project can optionally send Telegram alerts for high-value payments.
-
-Standard validation evidence keeps alerting disabled:
-
-```env
-ENABLE_TELEGRAM_ALERTS=false
+```text
+00_streaming_architecture_v2.png
+01_streaming_infrastructure.png
+02_streaming_kafka_topic.png
+03_streaming_tests_and_lint.png
+04_streaming_windows.png
+05_producer_execution.png
+06_consumer_execution.png
+07_window_completion.png
+08_streaming_ci_success.png
+09_streaming_window_automation.png
 ```
-
-Telegram alerting is intentionally treated as an optional operational feature rather than part of the core bounded-window evidence.
-
-Do not commit real Telegram credentials.
 
 ---
 
@@ -465,39 +490,26 @@ vendor-payments-streaming-pipeline/
 │       ├── 05_producer_execution.png
 │       ├── 06_consumer_execution.png
 │       ├── 07_window_completion.png
-│       └── 08_streaming_ci_success.png
+│       ├── 08_streaming_ci_success.png
+│       └── 09_streaming_window_automation.png
 │
-├── common/
 ├── consumer/
 │   └── consumer.py
+├── producer/
+│   └── producer.py
 ├── data/
 │   └── input/
 │       └── stream_windows/
-│           ├── vendor_payments_stream_window_001.csv
-│           ├── vendor_payments_stream_window_002.csv
-│           └── vendor_payments_stream_window_003.csv
 ├── output/
-│   ├── reports/
-│   │   ├── producer_execution_summary.json
-│   │   └── consumer_execution_summary.json
 │   └── staging/
-│       ├── stream_window_001/
-│       ├── stream_window_002/
-│       └── stream_window_003/
-├── producer/
-│   └── producer.py
 ├── scripts/
-│   ├── create_topic.ps1
-│   ├── prepare_stream_sample.py
-│   └── reset_streaming_execution.py
+├── src/
 ├── tests/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
 ├── docker-compose.yml
+├── .env.example
+├── pytest.ini
+├── pyproject.toml
 ├── requirements.txt
-├── run_consumer.py
-├── run_producer.py
 └── README.md
 ```
 
@@ -505,68 +517,88 @@ vendor-payments-streaming-pipeline/
 
 ## ▶️ Run Locally
 
-### 1. Create and activate a virtual environment
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-### 2. Install dependencies
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-### 3. Start Kafka, Redis, and Zookeeper
+### 1. Start infrastructure
 
 ```powershell
 docker compose up -d
 docker compose ps
 ```
 
-### 4. Create the Kafka topic
+### 2. Verify Redis
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\create_topic.ps1
+docker compose exec redis redis-cli ping
 ```
 
-### 5. Prepare bounded windows
-
-```powershell
-python scripts\prepare_stream_sample.py
-```
-
-### 6. Run one window
-
-Example:
-
-```powershell
-python run_producer.py --window 3
-python run_consumer.py consumer-A --window 3
-```
-
-Generated staging output:
+Expected:
 
 ```text
-output/staging/stream_window_003/
-├── events.jsonl
-└── _SUCCESS
+PONG
 ```
 
-### 7. Run tests and Ruff
+### 3. Describe Kafka topic
 
 ```powershell
-python -m pytest -v
+docker compose exec kafka `
+  kafka-topics `
+  --bootstrap-server kafka:29092 `
+  --describe `
+  --topic vendor_payments_events
+```
+
+If the local Kafka volume was intentionally reset, recreate the topic:
+
+```powershell
+docker compose exec kafka `
+  kafka-topics `
+  --bootstrap-server kafka:29092 `
+  --create `
+  --topic vendor_payments_events `
+  --partitions 3 `
+  --replication-factor 1
+```
+
+### 4. Run Producer
+
+```powershell
+python producer/producer.py `
+  data/input/stream_windows/vendor_payments_stream_window_001.csv
+```
+
+### 5. Run Consumer
+
+```powershell
+python consumer/consumer.py
+```
+
+### 6. Run tests and Ruff
+
+```powershell
+python -m pytest -q
 python -m ruff check .
 ```
 
 ---
 
+## 🧹 Clean Local Regression
+
+Kafka offsets, Redis keys, staging files, `_SUCCESS`, and `_PROCESSED` are lifecycle state.
+
+A manual replay should not append a new run onto a completed `events.jsonl` artifact without intentionally resetting the test state first.
+
+```text
+previous completed window
+≠
+new clean replay
+```
+
+For evidence or regression testing, prepare the window state explicitly before rerunning Producer / Consumer.
+
+---
+
 ## 🔐 Environment Variables
 
-Representative local configuration:
+Representative host configuration:
 
 ```env
 KAFKA_BROKER=localhost:9092
@@ -583,18 +615,22 @@ DUPLICATE_RATE=0.05
 RANDOM_SEED=42
 
 LARGE_PAYMENT_THRESHOLD=1000000
-TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT=5
 
 LOG_LEVEL=INFO
 KAFKA_LOG_LEVEL=WARNING
 REDIS_LOG_LEVEL=WARNING
 
 ENABLE_TELEGRAM_ALERTS=false
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
 ```
 
-Do not commit real credentials or secrets.
+For Docker-based Airflow execution:
+
+```text
+KAFKA_BROKER=kafka:29092
+REDIS_HOST=redis
+```
+
+Do not commit real credentials, tokens, or secrets.
 
 ---
 
@@ -602,45 +638,35 @@ Do not commit real credentials or secrets.
 
 ### Why bounded windows?
 
-The previous design depended on one fixed staging artifact.
+Continuous streaming has no natural completion boundary.
 
-Bounded windows create explicit processing units:
-
-```text
-stream_window_001
-→ stream_window_002
-→ stream_window_003
-```
-
-Each window can be completed, validated, processed, and tracked independently.
+Bounded windows create explicit units that can be produced, consumed, validated, completed, processed downstream, and tracked independently.
 
 ### Why `_SUCCESS`?
 
-File existence alone does not prove that a streaming window is complete.
+File existence alone does not prove that ingestion is complete.
 
-`_SUCCESS` gives Airflow an explicit readiness signal.
+`_SUCCESS` is an explicit readiness signal for downstream orchestration.
 
-### Why separate `_SUCCESS` and `_PROCESSED`?
-
-They represent different lifecycle boundaries:
+### Why `_PROCESSED` separately?
 
 ```text
 _SUCCESS
-= streaming ingestion complete
+= Kafka / Consumer ingestion complete
 
 _PROCESSED
-= downstream processing complete
+= downstream Airflow processing complete
 ```
 
-### Why simulate duplicates?
+### Why inject duplicates?
 
-Retry, replay, consumer restarts, and at-least-once delivery can cause the same logical event to arrive more than once.
+Retries, replay, restarts, and at-least-once delivery can cause the same logical event to appear more than once.
 
-Deterministic duplicate injection makes deduplication behavior reproducible and testable.
+Controlled duplicate injection makes deduplication measurable and reproducible.
 
 ### Why Redis?
 
-Redis provides fast lookup and TTL support, allowing duplicate `event_id` values to be rejected before they reach staging.
+Redis provides fast event-ID lookup with TTL support, allowing duplicate events to be rejected before they are appended to accepted-event staging.
 
 ### Why manual offset commits?
 
@@ -648,78 +674,108 @@ Manual commits prevent offsets from advancing before application processing is c
 
 ### Why not claim exactly-once?
 
-Exactly-once behavior requires guarantees across Kafka, state, processing, and output systems.
+Exactly-once guarantees require coordination across Kafka, processing state, and output systems.
 
 The current design explicitly uses:
 
 ```text
 At-least-once delivery
 → Redis duplicate detection
-→ Per-window output validation
-→ Explicit completion markers
+→ per-window output validation
+→ explicit lifecycle markers
 ```
 
 ### Why three Kafka partitions?
 
 Three partitions demonstrate partitioned routing and prepare the topic for future horizontal consumer scaling.
 
-The current validation still uses one consumer process, so the project does not claim a multi-consumer throughput benchmark.
+The current validation uses one consumer process, so the project does not claim a multi-consumer throughput benchmark.
+
+### Why separate Kafka listeners?
+
+The same broker is reached from two network contexts:
+
+```text
+Windows host Python
+→ localhost:9092
+
+Docker-based Airflow
+→ kafka:29092
+```
+
+Separate advertised listeners keep the broker reachable from both.
+
+### Why automate the next window through Airflow?
+
+The final orchestration preserves each window as an independent retry boundary while removing the manual transition from one window to the next:
+
+```text
+discover
+→ process
+→ mark processed
+→ select next
+→ trigger next run
+```
 
 ---
 
 ## 🔗 Role in the Vendor Payments Data Platform
 
 ```text
-Vendor Payments ETL Foundation
+Vendor Payments Batch ETL
         ↓
-Kafka Streaming Pipeline
+Trusted Silver Data
         ↓
-Completed Window (_SUCCESS)
+Bounded Streaming Windows
         ↓
-Airflow Streaming Pipeline
+Kafka Producer
         ↓
-AWS S3 + Redshift + Athena Validation
+Kafka Topic
         ↓
-latest.json
+Kafka Consumer + Redis
         ↓
-FastAPI Serving
+Per-Window Staging + _SUCCESS
         ↓
-React Analytics
+Airflow Streaming DAG
+        ↓
+S3 / Athena / Redshift
+        ↓
+Cross-Layer Validation
+        ↓
+latest.json + _PROCESSED
+        ↓
+API / Analytics
 ```
-
-This repository provides the ingestion boundary between trusted source data and downstream bounded-window processing.
 
 ---
 
-## 🛣️ Planned Development
+## 🛣️ Planned Improvements
 
-Future production-oriented improvements may include:
+Possible production-oriented extensions include:
 
-* Dead-letter queue / failed-event replay
-* Stronger crash recovery and idempotency
-* Multi-consumer horizontal scaling with shared completion state
-* Consumer lag monitoring
-* Centralized observability
-* Schema registry integration
-* Historical execution metadata storage
-* Cloud-backed Kafka infrastructure
+- Dead-letter queue / failed-event replay
+- Multi-consumer horizontal scaling with shared completion state
+- Consumer lag monitoring
+- Centralized observability and alerting
+- Schema Registry integration
+- Cloud-managed Kafka infrastructure
+- Durable shared state strategy for scaled consumers
+- Production retention and replay policies
 
 ---
 
 ## 🎯 Key Takeaway
 
-The current version moves the streaming project from one fixed staging file toward explicit bounded processing windows.
-
 ```text
-Trusted Silver Data
-→ Bounded Window
-→ Kafka Producer
-→ Kafka Topic
-→ Kafka Consumer
+3 Bounded Windows
+→ 100K Base Events / Window
+→ 5K Controlled Duplicates
+→ Kafka
 → Redis Deduplication
-→ Per-Window Staging
+→ 100K Accepted Events
 → _SUCCESS
-→ Airflow Downstream Processing
+→ Airflow Automation
+→ _PROCESSED
 ```
 
-The design keeps the streaming ingestion lifecycle explicit, reproducible, and independently trackable while preserving a clear handoff to downstream orchestration.
+The final design provides a reproducible streaming-ingestion layer with explicit processing boundaries, measurable duplicate handling, retry-safe downstream orchestration, and clear ownership across Kafka, Redis, Airflow, and the Cloud analytics layer.
